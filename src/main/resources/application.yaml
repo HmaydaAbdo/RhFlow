@@ -1,0 +1,165 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /rh
+
+spring:
+  application:
+    name: RH ERP System
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Datasource : credentials externalisés. Les valeurs par défaut conviennent
+  # au développement local (docker-compose). En prod, injecter via variables
+  # d'environnement (cf. .env.example).
+  # ─────────────────────────────────────────────────────────────────────────
+  datasource:
+    url: ${DB_URL}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  threads:
+    virtual:
+      enabled: true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI fallback chain — providers are tried in declaration order.
+# Set enabled: false to skip a provider without deleting its config.
+# All providers use the OpenAI-compatible API, so only baseUrl/model differ.
+#
+# Keys: inject via env vars (GROQ_API_KEY, GOOGLE_AI_KEY, etc.)
+#       → set them in your .env / Docker environment / shell profile.
+# ─────────────────────────────────────────────────────────────────────────────
+
+logging:
+  level:
+    root: INFO
+    com.hrflow: INFO
+    dev.langchain4j: INFO
+
+app:
+  ai:
+    company:
+      nom: STAPORT SA
+      secteur: BTP (Bâtiment et Travaux Publics)
+      ville: Aïn Sebaâ, Casablanca, Maroc
+      annee-fondation: 1999
+      email-recrutement: recrutement@staport-sa.ma
+
+    providers:
+
+      # Tier 1: Low‑latency, interactive UIs (chat, real‑time scoring)
+      - name: groq
+        base-url: https://api.groq.com/openai/v1
+        api-key: ${GROQ_API_KEY}
+        model: llama-3.3-70b-versatile
+        timeout-seconds: 20
+        temperature: 0.75
+        enabled: true
+
+      # Tier 2: Best quality + huge context for CV/JD parsing
+      - name: google
+        base-url: https://generativelanguage.googleapis.com/v1beta/openai/
+        api-key: ${GOOGLE_AI_KEY}
+        model: gemini-2.5-flash
+        timeout-seconds: 25
+        temperature: 0.75
+        enabled: true
+
+      # Tier 3: High‑throughput batch jobs (import many CVs/JDs)
+      - name: cerebras
+        base-url: https://api.cerebras.ai/v1
+        api-key: ${CEREBRAS_API_KEY}
+        model: llama-3.3-70b
+        timeout-seconds: 20
+        temperature: 0.75
+        enabled: true
+
+      # Tier 4: Extra batch / dev‑experimentation (Mistral + OpenRouter)
+      - name: mistral
+        base-url: https://api.mistral.ai/v1
+        api-key: ${MISTRAL_API_KEY}
+        model: mistral-small-latest
+        timeout-seconds: 30
+        temperature: 0.75
+        enabled: true
+
+      - name: openrouter
+        base-url: https://openrouter.ai/api/v1
+        api-key: ${OPEN_ROUTER_API_KEY}
+        model: openai/gpt-oss-120b:free
+        timeout-seconds: 30
+        temperature: 0.75
+        enabled: true
+
+      # Tier 5: Optional fallbacks (Fireworks, HF) — lower priority
+      - name: huggingface
+        base-url: https://router.huggingface.co/v1
+        api-key: ${HF_API_KEY}
+        model: openai/gpt-oss-120b:fastest
+        timeout-seconds: 45
+        temperature: 0.75
+        enabled: true
+
+      # Tier 6: Always‑on, offline, private fallback
+      - name: ollama
+        base-url: http://localhost:11434/v1
+        api-key: ollama
+        model: qwen2.5:7b-instruct-q4_K_M
+        timeout-seconds: 180
+        temperature: 0.75
+        enabled: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JWT : le secret DOIT être fourni via la variable d'environnement APP_JWT_SECRET.
+  # Aucun défaut n'est provisionné pour des raisons de sécurité (empêche qu'un
+  # déploiement oublié démarre avec un secret public connu).
+  # ─────────────────────────────────────────────────────────────────────────────
+  jwt:
+    secret: ${APP_JWT_SECRET:}
+    access-expiration: 4
+    refresh-expiration: 7
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # CORS : liste (séparée par virgules) d'origines autorisées.
+  # Défaut (dev local) : http://localhost:4200
+  # En prod : APP_CORS_ALLOWED_ORIGINS=https://rh.example.com,https://admin.example.com
+  # ─────────────────────────────────────────────────────────────────────────────
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
+
+  chantiers:
+    sync:
+      url: http://staport.dyndns.org/walidbentaleb/get_my_chantiers_by_npemploy/0
+      cron: "0 0 6 * * *"
+
+  minio:
+    endpoint: ${MINIO_ENDPOINT}
+    access-key: ${MINIO_ACCESS_KEY}
+    secret-key: ${MINIO_SECRET_KEY}
+    bucket-name: ${MINIO_BUCKET}
+
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  packages-to-scan: com.hrflow
