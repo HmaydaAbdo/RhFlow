@@ -11,6 +11,7 @@ import com.hrflow.direction.exception.DirectionNotFoundException;
 import com.hrflow.direction.mapper.DirectionMapper;
 import com.hrflow.direction.repositories.DirectionRepository;
 import com.hrflow.users.entities.User;
+import com.hrflow.users.exception.UserNotFoundException;
 import com.hrflow.users.repositories.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,9 +90,8 @@ public class DirectionService {
     }
 
     private void assignDirecteur(Direction direction, Long directeurId) {
-
-        User user = userRepository.findById(directeurId)
-                .orElseThrow(() -> new RuntimeException("Utilisateur introuvable : " + directeurId));
+        User user = userRepository.findWithRolesById(directeurId)
+                .orElseThrow(() -> new UserNotFoundException(directeurId));
 
         boolean hasRole = user.getRoles().stream()
                 .anyMatch(r -> ROLE_DIRECTEUR.equals(r.getRoleName()));

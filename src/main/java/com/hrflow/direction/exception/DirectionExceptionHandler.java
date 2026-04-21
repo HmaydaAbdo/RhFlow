@@ -7,7 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(basePackages = "com.hrflow.recruitment.direction")
+@RestControllerAdvice(basePackages = "com.hrflow.direction")
 public class DirectionExceptionHandler {
 
     @ExceptionHandler(DirectionNotFoundException.class)

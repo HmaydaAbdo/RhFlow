@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -38,12 +39,14 @@ public class DirectionController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
     public ResponseEntity<DirectionResponse> create(@Valid @RequestBody DirectionRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(directionService.create(request));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
     public ResponseEntity<DirectionResponse> update(
             @PathVariable Long id,
             @Valid @RequestBody DirectionRequest request) {
@@ -51,6 +54,7 @@ public class DirectionController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         directionService.delete(id);
         return ResponseEntity.noContent().build();
