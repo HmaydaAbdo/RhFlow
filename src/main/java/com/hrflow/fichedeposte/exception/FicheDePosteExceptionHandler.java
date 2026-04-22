@@ -20,4 +20,19 @@ public class FicheDePosteExceptionHandler {
     @ExceptionHandler(FicheDePosteAccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(FicheDePosteAccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body
+                .body(new ErrorResponse(403, "Forbidden", ex.getMessage()));
+    }
+
+    @ExceptionHandler(FicheDePosteHasBesoinsException.class)
+    public ResponseEntity<ErrorResponse> handleHasBesoins(FicheDePosteHasBesoinsException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(409, "Conflict", ex.getMessage()));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(409, "Conflict",
+                        "Impossible de supprimer cette fiche de poste : des besoins de recrutement y sont encore rattachés."));
+    }
+}

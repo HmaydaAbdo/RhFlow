@@ -182,4 +182,16 @@ public class FicheDePosteService {
     }
 
     private User getAuthenticatedUser() {
-        Authentication auth = SecurityContextHolder.getC
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            throw new IllegalStateException("Utilisateur non authentifié");
+        }
+        return userRepository.findWithRolesByEmail(auth.getName())
+                .orElseThrow(() -> new UserNotFoundException(auth.getName()));
+    }
+
+    private Direction resolveDirection(Long directionId) {
+        return directionRepository.findById(directionId)
+                .orElseThrow(() -> new DirectionNotFoundException(directionId));
+    }
+}
