@@ -2,6 +2,7 @@
 package com.hrflow.fichedeposte.exception;
 
 import com.hrflow.shared.dtos.ErrorResponse;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -19,6 +20,4 @@ public class FicheDePosteExceptionHandler {
     @ExceptionHandler(FicheDePosteAccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleAccessDenied(FicheDePosteAccessDeniedException ex) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(new ErrorResponse(403, "Forbidden", ex.getMessage()));
-    }
-}
+                .body

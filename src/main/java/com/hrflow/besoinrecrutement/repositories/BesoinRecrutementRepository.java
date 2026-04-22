@@ -23,6 +23,9 @@ public interface BesoinRecrutementRepository
     @EntityGraph(attributePaths = {"ficheDePoste", "ficheDePoste.direction", "directeur"})
     Optional<BesoinRecrutement> findWithDetailsById(Long id);
 
+    // ---- Contrainte de suppression fiche de poste ----
+    boolean existsByFicheDePosteId(Long ficheDePosteId);
+
     // ---- Unicité : un seul besoin EN_COURS par fiche de poste ----
     boolean existsByFicheDePosteIdAndStatut(Long ficheDePosteId, StatutBesoin statut);
 

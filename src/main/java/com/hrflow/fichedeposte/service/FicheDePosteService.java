@@ -8,7 +8,9 @@ import com.hrflow.fichedeposte.dto.FicheDePosteRequest;
 import com.hrflow.fichedeposte.dto.FicheDePosteResponse;
 import com.hrflow.fichedeposte.dto.FicheDePosteSummaryResponse;
 import com.hrflow.fichedeposte.dto.FicheDePosteSearchDto;
+import com.hrflow.besoinrecrutement.repositories.BesoinRecrutementRepository;
 import com.hrflow.fichedeposte.exception.FicheDePosteAccessDeniedException;
+import com.hrflow.fichedeposte.exception.FicheDePosteHasBesoinsException;
 import com.hrflow.fichedeposte.exception.FicheDePosteNotFoundException;
 import com.hrflow.fichedeposte.mapper.FicheDePosteMapper;
 import com.hrflow.fichedeposte.model.FicheDePoste;
@@ -33,19 +35,22 @@ public class FicheDePosteService {
 
     private static final Logger log = LoggerFactory.getLogger(FicheDePosteService.class);
 
-    private final FicheDePosteRepository ficheDePosteRepository;
-    private final FicheDePosteMapper     ficheDePosteMapper;
-    private final DirectionRepository    directionRepository;
-    private final UserRepository         userRepository;
+    private final FicheDePosteRepository      ficheDePosteRepository;
+    private final FicheDePosteMapper          ficheDePosteMapper;
+    private final DirectionRepository         directionRepository;
+    private final UserRepository              userRepository;
+    private final BesoinRecrutementRepository besoinRecrutementRepository;
 
     public FicheDePosteService(FicheDePosteRepository ficheDePosteRepository,
                                FicheDePosteMapper ficheDePosteMapper,
                                DirectionRepository directionRepository,
-                               UserRepository userRepository) {
-        this.ficheDePosteRepository = ficheDePosteRepository;
-        this.ficheDePosteMapper     = ficheDePosteMapper;
-        this.directionRepository    = directionRepository;
-        this.userRepository         = userRepository;
+                               UserRepository userRepository,
+                               BesoinRecrutementRepository besoinRecrutementRepository) {
+        this.ficheDePosteRepository      = ficheDePosteRepository;
+        this.ficheDePosteMapper          = ficheDePosteMapper;
+        this.directionRepository         = directionRepository;
+        this.userRepository              = userRepository;
+        this.besoinRecrutementRepository = besoinRecrutementRepository;
     }
 
     // =====================================================================
@@ -80,9 +85,11 @@ public class FicheDePosteService {
 
     @Transactional(readOnly = true)
     public Page<FicheDePosteSummaryResponse> findByDirection(Long directionId, Pageable pageable) {
+
         if (!directionRepository.existsById(directionId)) {
             throw new DirectionNotFoundException(directionId);
         }
+
         return ficheDePosteRepository
                 .findByDirectionId(directionId, pageable)
                 .map(ficheDePosteMapper::toSummary);
@@ -118,6 +125,9 @@ public class FicheDePosteService {
     public void delete(Long id) {
         if (!ficheDePosteRepository.existsById(id)) {
             throw new FicheDePosteNotFoundException(id);
+        }
+        if (besoinRecrutementRepository.existsByFicheDePosteId(id)) {
+            throw new FicheDePosteHasBesoinsException(id);
         }
         ficheDePosteRepository.deleteById(id);
         log.info("Fiche de poste supprimée : id={}", id);
@@ -172,16 +182,4 @@ public class FicheDePosteService {
     }
 
     private User getAuthenticatedUser() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
-            throw new IllegalStateException("Utilisateur non authentifié");
-        }
-        return userRepository.findByEmail(auth.getName())
-                .orElseThrow(() -> new UserNotFoundException(auth.getName()));
-    }
-
-    private Direction resolveDirection(Long directionId) {
-        return directionRepository.findById(directionId)
-                .orElseThrow(() -> new DirectionNotFoundException(directionId));
-    }
-}
+        Authentication auth = SecurityContextHolder.getC
