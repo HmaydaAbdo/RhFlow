@@ -1,5 +1,6 @@
 package com.hrflow.projetrecrutement.service;
 
+import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
 import com.hrflow.direction.repositories.DirectionRepository;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementResponse;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementSearchDto;
@@ -104,6 +105,42 @@ public class ProjetRecrutementService {
     }
 
     // =====================================================================
+    // LIFECYCLE — appelées par BesoinRecrutementService (contexte sécurisé)
+    // Pas de @PreAuthorize : l'autorisation est vérifiée par l'appelant.
+    // =====================================================================
+
+    /**
+     * Crée un ProjetRecrutement automatiquement lors de l'acceptation d'un besoin.
+     * Idempotent : ne crée pas si un projet existe déjà pour ce besoin.
+     */
+    @Transactional
+    public void createForBesoin(BesoinRecrutement besoin) {
+        if (projetRepository.existsByBesoinRecrutementId(besoin.getId())) return;
+
+        ProjetRecrutement projet = new ProjetRecrutement();
+        projet.setBesoinRecrutement(besoin);
+        projet.setFicheDePoste(besoin.getFicheDePoste());
+        projet.setNombrePostes(besoin.getNombrePostes());
+        projet.setStatut(StatutProjet.OUVERT);
+        projetRepository.save(projet);
+
+        log.info("ProjetRecrutement créé automatiquement pour besoin id={}", besoin.getId());
+    }
+
+    /**
+     * Supprime le ProjetRecrutement lié à un besoin s'il existe.
+     * Appelé lors d'un changement de décision ACCEPTE → REFUSE.
+     */
+    @Transactional
+    public void deleteByBesoinId(Long besoinId) {
+        projetRepository.findByBesoinRecrutementId(besoinId).ifPresent(projet -> {
+            projetRepository.delete(projet);
+            log.info("ProjetRecrutement id={} supprimé (besoin id={} → REFUSE)",
+                    projet.getId(), besoinId);
+        });
+    }
+
+    // =====================================================================
     // HELPERS PRIVÉS
     // =====================================================================
 
@@ -158,7 +195,8 @@ public class ProjetRecrutementService {
         if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
             throw new IllegalStateException("Utilisateur non authentifié");
         }
-        return userRepository.findByEmail(auth.getName())
+        // findWithRolesByEmail charge les rôles en JOIN — évite le lazy load dans hasRole()
+        return userRepository.findWithRolesByEmail(auth.getName())
                 .orElseThrow(() -> new UserNotFoundException(auth.getName()));
     }
 }

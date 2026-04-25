@@ -155,7 +155,7 @@ public class UserService {
 
     @Transactional
     public UserResponse setUserEnabled(Long id, boolean enabled) {
-        User user = userRepository.findById(id)
+        User user = userRepository.findWithRolesById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
         user.setEnabled(enabled);
         user = userRepository.save(user);

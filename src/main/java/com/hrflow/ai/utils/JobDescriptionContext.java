@@ -26,8 +26,7 @@ public record JobDescriptionContext(
         int    anneesExperience,
         int    nombrePostes,
         String priorite,
-        LocalDate dateSouhaitee,
-        String justification
+        LocalDate dateSouhaitee
 ) {
     public static JobDescriptionContext from(BesoinRecrutement besoin, CompanyProfile company) {
         FicheDePoste fiche = besoin.getFicheDePoste();
@@ -48,8 +47,7 @@ public record JobDescriptionContext(
                 fiche.getAnneesExperience(),
                 besoin.getNombrePostes(),
                 besoin.getPriorite().name(),
-                besoin.getDateSouhaitee(),
-                besoin.getJustification()
+                besoin.getDateSouhaitee()
         );
     }
 

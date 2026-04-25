@@ -20,6 +20,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 @Service
 public class DirectionService {
 
@@ -40,9 +44,20 @@ public class DirectionService {
 
     @Transactional(readOnly = true)
     public Page<DirectionResponse> search(DirectionSearchDto search, Pageable pageable) {
-        return directionRepository
-                .findAll(DirectionSpecification.fromSearch(search), pageable)
-                .map(this::toResponseWithCount);
+        Page<Direction> page = directionRepository
+                .findAll(DirectionSpecification.fromSearch(search), pageable);
+
+        // Une seule requête COUNT pour toute la page — évite N+1
+        List<Long> ids = page.stream().map(Direction::getId).toList();
+        Map<Long, Long> countMap = directionRepository
+                .countFichesDePosteByDirectionIds(ids)
+                .stream()
+                .collect(Collectors.toMap(
+                        row -> ((Number) row[0]).longValue(),
+                        row -> ((Number) row[1]).longValue()
+                ));
+
+        return page.map(d -> toResponseWithCount(d, countMap.getOrDefault(d.getId(), 0L)));
     }
 
     @Transactional(readOnly = true)
@@ -102,6 +117,7 @@ public class DirectionService {
         direction.setDirecteur(user);
     }
 
+    /** Utilisé par findById / create / update — count individuel acceptable. */
     private DirectionResponse toResponseWithCount(Direction direction) {
         DirectionResponse base = directionMapper.toResponse(direction);
         long count = directionRepository.countFichesDePoste(direction.getId());
@@ -109,6 +125,17 @@ public class DirectionService {
                 base.id(), base.nom(),
                 base.directeurId(), base.directeurNom(),
                 count,
+                base.createdAt(), base.updatedAt()
+        );
+    }
+
+    /** Utilisé par search() — count déjà calculé en bulk. */
+    private DirectionResponse toResponseWithCount(Direction direction, long fichesCount) {
+        DirectionResponse base = directionMapper.toResponse(direction);
+        return new DirectionResponse(
+                base.id(), base.nom(),
+                base.directeurId(), base.directeurNom(),
+                fichesCount,
                 base.createdAt(), base.updatedAt()
         );
     }

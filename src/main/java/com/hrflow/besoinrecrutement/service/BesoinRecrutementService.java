@@ -2,7 +2,6 @@ package com.hrflow.besoinrecrutement.service;
 
 import com.hrflow.besoinrecrutement.dto.*;
 import com.hrflow.besoinrecrutement.exception.BesoinRecrutementAccessDeniedException;
-import com.hrflow.besoinrecrutement.exception.BesoinRecrutementConflictException;
 import com.hrflow.besoinrecrutement.exception.BesoinRecrutementNotFoundException;
 import com.hrflow.besoinrecrutement.mapper.BesoinRecrutementMapper;
 import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
@@ -13,8 +12,7 @@ import com.hrflow.direction.repositories.DirectionRepository;
 import com.hrflow.fichedeposte.exception.FicheDePosteNotFoundException;
 import com.hrflow.fichedeposte.model.FicheDePoste;
 import com.hrflow.fichedeposte.repositories.FicheDePosteRepository;
-import com.hrflow.projetrecrutement.model.ProjetRecrutement;
-import com.hrflow.projetrecrutement.repositories.ProjetRecrutementRepository;
+import com.hrflow.projetrecrutement.service.ProjetRecrutementService;
 import com.hrflow.users.entities.User;
 import com.hrflow.users.exception.UserNotFoundException;
 import com.hrflow.users.repositories.UserRepository;
@@ -27,7 +25,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,7 +40,7 @@ public class BesoinRecrutementService {
     private final FicheDePosteRepository      ficheDePosteRepository;
     private final DirectionRepository         directionRepository;
     private final UserRepository              userRepository;
-    private final ProjetRecrutementRepository projetRepository;
+    private final ProjetRecrutementService    projetService;
 
     public BesoinRecrutementService(
             BesoinRecrutementRepository besoinRepository,
@@ -51,13 +48,13 @@ public class BesoinRecrutementService {
             FicheDePosteRepository ficheDePosteRepository,
             DirectionRepository directionRepository,
             UserRepository userRepository,
-            ProjetRecrutementRepository projetRepository) {
+            ProjetRecrutementService projetService) {
         this.besoinRepository       = besoinRepository;
         this.besoinMapper           = besoinMapper;
         this.ficheDePosteRepository = ficheDePosteRepository;
         this.directionRepository    = directionRepository;
         this.userRepository         = userRepository;
-        this.projetRepository       = projetRepository;
+        this.projetService          = projetService;
     }
 
     // =====================================================================
@@ -66,27 +63,33 @@ public class BesoinRecrutementService {
 
     @Transactional
     public BesoinRecrutementResponse create(BesoinRecrutementRequest request) {
-        User directeur = getAuthenticatedUser();
+        User authenticatedUser = getAuthenticatedUser();
 
         FicheDePoste fiche = resolveFicheDePoste(request.ficheDePosteId());
 
-        // Le directeur ne peut exprimer un besoin que pour ses propres directions
-        assertFicheBelongsToDirecteur(fiche, directeur);
+        if(isDirecteurOnly(authenticatedUser)){
+            // Le directeur ne peut exprimer un besoin que pour ses propres directions
+            assertFicheBelongsToDirecteur(fiche, authenticatedUser);
+        }
+
 
         BesoinRecrutement besoin = besoinMapper.toEntity(request);
         besoin.setFicheDePoste(fiche);
-        besoin.setDirecteur(directeur);
-        besoin.setStatut(StatutBesoin.EN_COURS);
+        besoin.setDirecteur(fiche.getDirection().getDirecteur());
+        besoin.setCreatedBy(authenticatedUser);
+        besoin.setEncours(true);
+        // statut reste null jusqu'à la décision du DRH
 
         BesoinRecrutement saved = besoinRepository.save(besoin);
-        log.info("Besoin en recrutement créé : id={}, ficheId={}, directeurId={}",
-                saved.getId(), fiche.getId(), directeur.getId());
+        log.info("Besoin en recrutement créé : id={}, ficheId={}, directeurId={}, createdById={}",
+                saved.getId(), fiche.getId(),
+                saved.getDirecteur().getId(), authenticatedUser.getId());
 
         return toFullResponse(saved);
     }
 
     // =====================================================================
-    // UPDATE — le Directeur peut modifier à tout moment son besoin
+    // UPDATE — modifiable uniquement si encours=true
     // =====================================================================
 
     @Transactional
@@ -94,15 +97,17 @@ public class BesoinRecrutementService {
         User directeur = getAuthenticatedUser();
         BesoinRecrutement besoin = loadWithDetails(id);
 
-        // Si la fiche change, re-valider l'appartenance et l'unicité
+        // Un besoin décidé ne peut plus être modifié
+        if (!besoin.isEncours()) {
+            throw new BesoinRecrutementAccessDeniedException(
+                    "Ce besoin a déjà fait l'objet d'une décision et ne peut plus être modifié");
+        }
+
+        // Si la fiche change, re-valider l'appartenance
         if (!besoin.getFicheDePoste().getId().equals(request.ficheDePosteId())) {
             FicheDePoste nouvelleFiche = resolveFicheDePoste(request.ficheDePosteId());
-            assertFicheBelongsToDirecteur(nouvelleFiche, directeur);
-
-            boolean conflitExiste = besoinRepository.existsByFicheDePosteIdAndStatutAndIdNot(
-                    nouvelleFiche.getId(), StatutBesoin.EN_COURS, id);
-            if (conflitExiste) {
-                throw new BesoinRecrutementConflictException(nouvelleFiche.getId());
+            if(isDirecteurOnly(directeur)){
+                assertFicheBelongsToDirecteur(nouvelleFiche, directeur);
             }
             besoin.setFicheDePoste(nouvelleFiche);
         }
@@ -115,33 +120,35 @@ public class BesoinRecrutementService {
     }
 
     // =====================================================================
-    // DECISION — réservé au DRH
+    // DECISION — réservé au DRH et ADMIN
+    // Applicable sur encours=true (première décision) ou encours=false (changement de décision depuis l'archive).
+    //
+    // Règles ProjetRecrutement :
+    //   → ACCEPTE (null→ACCEPTE ou REFUSE→ACCEPTE) : créer un projet si inexistant
+    //   → REFUSE  (null→REFUSE  ou ACCEPTE→REFUSE) : supprimer le projet s'il existe
     // =====================================================================
 
     @Transactional
     public BesoinRecrutementResponse decider(Long id, DecisionBesoinRequest request) {
         BesoinRecrutement besoin = loadWithDetails(id);
 
+        StatutBesoin ancienStatut = besoin.getStatut();
+
         if (request.statut() == StatutBesoin.ACCEPTE) {
-            // Créer le projet de recrutement associé
-            ProjetRecrutement projet = new ProjetRecrutement();
-            projet.setBesoinRecrutement(besoin);
-            projet.setFicheDePoste(besoin.getFicheDePoste());
-            projet.setNombrePostes(besoin.getNombrePostes());
-            projetRepository.save(projet);
-
-            // Archiver le besoin (il ne doit plus apparaître dans la liste active)
-            besoin.setStatut(StatutBesoin.ARCHIVE);
-            besoin.setMotifRefus(null);
-
-            log.info("Besoin id={} accepté → ProjetRecrutement créé, besoin archivé", id);
+            // → ACCEPTE : déléguer la création au ProjetRecrutementService
+            projetService.createForBesoin(besoin);
         } else {
-            besoin.setStatut(StatutBesoin.REFUSE);
-            besoin.setMotifRefus(request.motifRefus());
-            log.info("Décision DRH sur besoin id={} : REFUSE", id);
+            // → REFUSE : déléguer la suppression au ProjetRecrutementService
+            projetService.deleteByBesoinId(id);
         }
 
+        besoin.setEncours(false);
+        besoin.setStatut(request.statut());
+
         BesoinRecrutement saved = besoinRepository.save(besoin);
+        log.info("Décision sur besoin id={} : {} (ancien statut : {})",
+                id, request.statut(), ancienStatut == null ? "aucun" : ancienStatut);
+
         return toFullResponse(saved);
     }
 
@@ -172,12 +179,11 @@ public class BesoinRecrutementService {
     }
 
     // =====================================================================
-    // DELETE — le Directeur supprime son besoin
+    // DELETE
     // =====================================================================
 
     @Transactional
     public void delete(Long id) {
-        User directeur = getAuthenticatedUser();
         BesoinRecrutement besoin = besoinRepository.findById(id)
                 .orElseThrow(() -> new BesoinRecrutementNotFoundException(id));
 
@@ -192,23 +198,24 @@ public class BesoinRecrutementService {
     @Transactional(readOnly = true)
     public BesoinStatsResponse getStats() {
         long total    = besoinRepository.count();
-        long enCours  = besoinRepository.countByStatut(StatutBesoin.EN_COURS);
+        long enCours  = besoinRepository.countByEncoursTrue();
         long acceptes = besoinRepository.countByStatut(StatutBesoin.ACCEPTE);
         long refuses  = besoinRepository.countByStatut(StatutBesoin.REFUSE);
 
-        // Agrège les lignes (directionId, directionNom, statut, count) par direction
-        Map<Long, long[]> dirMap = new LinkedHashMap<>();
+        // row : [dirId, dirNom, encours(boolean), statut(StatutBesoin|null), count]
+        Map<Long, long[]> dirMap  = new LinkedHashMap<>();
         Map<Long, String> dirNoms = new LinkedHashMap<>();
         for (Object[] row : besoinRepository.countGroupByDirectionAndStatut()) {
-            Long dirId       = ((Number) row[0]).longValue();
-            String dirNom    = (String) row[1];
-            StatutBesoin st  = (StatutBesoin) row[2];
-            long count       = ((Number) row[3]).longValue();
+            Long   dirId       = ((Number)  row[0]).longValue();
+            String dirNom      = (String)   row[1];
+            boolean isEncours  = (Boolean)  row[2];
+            StatutBesoin st    = row[3] != null ? (StatutBesoin) row[3] : null;
+            long   count       = ((Number)  row[4]).longValue();
             dirNoms.put(dirId, dirNom);
-            long[] counts = dirMap.computeIfAbsent(dirId, k -> new long[3]);
-            if (st == StatutBesoin.EN_COURS) counts[0] += count;
-            else if (st == StatutBesoin.ACCEPTE) counts[1] += count;
-            else if (st == StatutBesoin.REFUSE)  counts[2] += count;
+            long[] counts = dirMap.computeIfAbsent(dirId, k -> new long[3]); // [enCours, acceptes, refuses]
+            if      (isEncours)                       counts[0] += count;
+            else if (st == StatutBesoin.ACCEPTE)      counts[1] += count;
+            else if (st == StatutBesoin.REFUSE)       counts[2] += count;
         }
         List<BesoinStatsResponse.StatParDirection> parDirection = new ArrayList<>();
         dirMap.forEach((dirId, counts) -> parDirection.add(
@@ -231,8 +238,6 @@ public class BesoinRecrutementService {
         return new BesoinStatsResponse(total, enCours, acceptes, refuses, parDirection, parPriorite);
     }
 
-
-
     // =====================================================================
     // HELPERS PRIVÉS
     // =====================================================================
@@ -243,16 +248,15 @@ public class BesoinRecrutementService {
     }
 
     private FicheDePoste resolveFicheDePoste(Long ficheDePosteId) {
-        return ficheDePosteRepository.findWithDirectionById(ficheDePosteId)
+        return ficheDePosteRepository.findWithDirectionAndDirecteurById(ficheDePosteId)
                 .orElseThrow(() -> new FicheDePosteNotFoundException(ficheDePosteId));
     }
 
     /**
      * Construit la Specification en fonction du rôle et du flag mineOnly.
      *
-     * - mineOnly=true  → filtre sur directeur_id = user courant, quel que soit le rôle
-     *                    (utilisé par "Mes recrutements")
-     * - mineOnly=false + DRH/ADMIN → accès global (utilisé par "Toutes les demandes")
+     * - mineOnly=true  → directeur_id = user OU created_by_id = user (Mes besoins)
+     * - mineOnly=false + DRH/ADMIN → accès global (Tous les besoins / Archive)
      * - mineOnly=false + DIRECTEUR → restreint à ses directions
      */
     private Specification<BesoinRecrutement> buildSpecForCurrentUser(
@@ -260,29 +264,22 @@ public class BesoinRecrutementService {
             BesoinRecrutementSearchDto search) {
 
         if (search.mineOnly()) {
-            // "Mes recrutements" : uniquement les besoins créés par l'utilisateur connecté
-            return BesoinRecrutementSpecification.belongsToDirecteur(user.getId())
+            return BesoinRecrutementSpecification.belongsToUser(user.getId())
                     .and(BesoinRecrutementSpecification.fromSearch(search));
         }
 
         boolean isDrhOrAdmin = hasRole(user, "DRH") || hasRole(user, "ADMIN");
 
         if (isDrhOrAdmin) {
-            // "Toutes les demandes" : accès global pour DRH / ADMIN
             return BesoinRecrutementSpecification.fromSearch(search);
         }
 
         // DIRECTEUR sans mineOnly : restreindre à ses directions
         List<Long> directionIds = directionRepository.findIdsByDirecteurId(user.getId());
-        Specification<BesoinRecrutement> perimetre =
-                BesoinRecrutementSpecification.inDirections(directionIds);
-
-        return perimetre.and(BesoinRecrutementSpecification.fromSearch(search));
+        return BesoinRecrutementSpecification.inDirections(directionIds)
+                .and(BesoinRecrutementSpecification.fromSearch(search));
     }
 
-    /**
-     * Vérifie que la fiche de poste appartient à une direction gérée par le directeur.
-     */
     private void assertFicheBelongsToDirecteur(FicheDePoste fiche, User directeur) {
         List<Long> directionIds = directionRepository.findIdsByDirecteurId(directeur.getId());
         if (!directionIds.contains(fiche.getDirection().getId())) {
@@ -292,14 +289,16 @@ public class BesoinRecrutementService {
         }
     }
 
-
     private boolean hasRole(User user, String roleName) {
         return user.getRoles().stream()
                 .anyMatch(r -> roleName.equalsIgnoreCase(r.getRoleName()));
     }
 
+    private boolean isDirecteurOnly(User user) {
+        return hasRole(user, "DIRECTEUR") && !hasRole(user, "DRH") && !hasRole(user, "ADMIN");
+    }
+
     private BesoinRecrutementResponse toFullResponse(BesoinRecrutement besoin) {
-        // S'assurer que les associations lazy sont bien chargées (via findWithDetailsById)
         return besoinMapper.toResponse(besoin);
     }
 
@@ -308,7 +307,8 @@ public class BesoinRecrutementService {
         if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
             throw new IllegalStateException("Utilisateur non authentifié");
         }
-        return userRepository.findByEmail(auth.getName())
+        // findWithRolesByEmail charge les rôles en JOIN — évite le lazy load dans hasRole()
+        return userRepository.findWithRolesByEmail(auth.getName())
                 .orElseThrow(() -> new UserNotFoundException(auth.getName()));
     }
 }

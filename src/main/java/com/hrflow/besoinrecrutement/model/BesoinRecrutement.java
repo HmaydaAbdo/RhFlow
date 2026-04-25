@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 @Table(
     name = "besoins_recrutement",
     indexes = {
-        @Index(name = "idx_besoin_fiche_statut",  columnList = "fiche_de_poste_id, statut"),
+        @Index(name = "idx_besoin_fiche_encours",  columnList = "fiche_de_poste_id, encours"),
         @Index(name = "idx_besoin_directeur",      columnList = "directeur_id"),
         @Index(name = "idx_besoin_statut",         columnList = "statut")
     }
@@ -26,9 +26,15 @@ public class BesoinRecrutement {
     @JoinColumn(name = "fiche_de_poste_id", nullable = false)
     private FicheDePoste ficheDePoste;
 
+    /** Directeur de la direction concernée (déduit de la fiche de poste). */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "directeur_id", nullable = false)
     private User directeur;
+
+    /** Utilisateur authentifié qui a exprimé le besoin (peut être DRH, ADMIN ou DIRECTEUR). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "created_by_id", nullable = false)
+    private User createdBy;
 
     @Column(nullable = false)
     private int nombrePostes;
@@ -36,19 +42,25 @@ public class BesoinRecrutement {
     @Column(nullable = false)
     private LocalDate dateSouhaitee;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
-    private String justification;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private PrioriteBesoin priorite;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 10)
-    private StatutBesoin statut;
+    /**
+     * Indique si le besoin est encore en attente de décision.
+     * true  = aucune décision prise (besoin actif/récent)
+     * false = décision prise (ACCEPTE ou REFUSE)
+     */
+    @Column(nullable = false)
+    private boolean encours;
 
-    @Column(columnDefinition = "TEXT")
-    private String motifRefus;
+    /**
+     * Décision DRH. Null tant que encours=true.
+     * Valorisé à ACCEPTE ou REFUSE lors de la décision.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 10)
+    private StatutBesoin statut;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -67,9 +79,7 @@ public class BesoinRecrutement {
         LocalDateTime now = LocalDateTime.now();
         this.createdAt = now;
         this.updatedAt = now;
-        if (this.statut == null) {
-            this.statut = StatutBesoin.EN_COURS;
-        }
+        // encours et statut sont positionnés explicitement par le service / seeder
     }
 
     @PreUpdate
@@ -88,23 +98,23 @@ public class BesoinRecrutement {
     public User getDirecteur() { return directeur; }
     public void setDirecteur(User directeur) { this.directeur = directeur; }
 
+    public User getCreatedBy() { return createdBy; }
+    public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
+
     public int getNombrePostes() { return nombrePostes; }
     public void setNombrePostes(int nombrePostes) { this.nombrePostes = nombrePostes; }
 
     public LocalDate getDateSouhaitee() { return dateSouhaitee; }
     public void setDateSouhaitee(LocalDate dateSouhaitee) { this.dateSouhaitee = dateSouhaitee; }
 
-    public String getJustification() { return justification; }
-    public void setJustification(String justification) { this.justification = justification; }
-
     public PrioriteBesoin getPriorite() { return priorite; }
     public void setPriorite(PrioriteBesoin priorite) { this.priorite = priorite; }
 
+    public boolean isEncours() { return encours; }
+    public void setEncours(boolean encours) { this.encours = encours; }
+
     public StatutBesoin getStatut() { return statut; }
     public void setStatut(StatutBesoin statut) { this.statut = statut; }
-
-    public String getMotifRefus() { return motifRefus; }
-    public void setMotifRefus(String motifRefus) { this.motifRefus = motifRefus; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

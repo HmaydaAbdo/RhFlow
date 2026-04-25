@@ -10,6 +10,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -26,6 +27,7 @@ public class ProjetRecrutementController {
      * GET /projets-recrutement
      * Accès : ADMIN, DRH, DIRECTEUR (scope appliqué côté service)
      */
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH', 'DIRECTEUR')")
     @GetMapping
     public ResponseEntity<Page<ProjetRecrutementSummaryResponse>> search(
             @RequestParam(required = false) Long          directionId,
@@ -49,6 +51,7 @@ public class ProjetRecrutementController {
      * GET /projets-recrutement/{id}
      * Accès : ADMIN, DRH, DIRECTEUR (périmètre vérifié côté service)
      */
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH', 'DIRECTEUR')")
     @GetMapping("/{id}")
     public ResponseEntity<ProjetRecrutementResponse> findById(@PathVariable Long id) {
         return ResponseEntity.ok(projetService.findById(id));
@@ -58,6 +61,7 @@ public class ProjetRecrutementController {
      * PATCH /projets-recrutement/{id}/fermer
      * Accès : ADMIN, DRH uniquement
      */
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
     @PatchMapping("/{id}/fermer")
     public ResponseEntity<ProjetRecrutementResponse> fermer(@PathVariable Long id) {
         return ResponseEntity.ok(projetService.fermer(id));

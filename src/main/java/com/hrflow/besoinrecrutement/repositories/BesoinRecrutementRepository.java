@@ -1,10 +1,10 @@
 package com.hrflow.besoinrecrutement.repositories;
 
 import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
-import com.hrflow.besoinrecrutement.model.PrioriteBesoin;
 import com.hrflow.besoinrecrutement.model.StatutBesoin;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -20,19 +20,19 @@ public interface BesoinRecrutementRepository
                 JpaSpecificationExecutor<BesoinRecrutement> {
 
     // ---- Fetch complet pour GET by ID ----
-    @EntityGraph(attributePaths = {"ficheDePoste", "ficheDePoste.direction", "directeur"})
+    @EntityGraph(attributePaths = {"ficheDePoste", "ficheDePoste.direction", "directeur", "createdBy"})
     Optional<BesoinRecrutement> findWithDetailsById(Long id);
+
+    // ---- Fetch paginé pour search() — évite N+1 sur ficheDePoste, direction, directeur, createdBy ----
+    @EntityGraph(attributePaths = {"ficheDePoste", "ficheDePoste.direction", "directeur", "createdBy"})
+    @Override
+    Page<BesoinRecrutement> findAll(Specification<BesoinRecrutement> spec, Pageable pageable);
 
     // ---- Contrainte de suppression fiche de poste ----
     boolean existsByFicheDePosteId(Long ficheDePosteId);
 
-    // ---- Unicité : un seul besoin EN_COURS par fiche de poste ----
-    boolean existsByFicheDePosteIdAndStatut(Long ficheDePosteId, StatutBesoin statut);
-
-    // ---- Unicité en excluant l'entité courante (update) ----
-    boolean existsByFicheDePosteIdAndStatutAndIdNot(Long ficheDePosteId, StatutBesoin statut, Long id);
-
-    // ---- Stats globales par statut ----
+    // ---- Stats globales par état ----
+    long countByEncoursTrue();
     long countByStatut(StatutBesoin statut);
 
     // ---- Stats par priorité ----
@@ -43,13 +43,13 @@ public interface BesoinRecrutementRepository
         """)
     List<Object[]> countGroupByPriorite();
 
-    // ---- Stats : count par (direction, statut) — agrégé dans le service ----
+    // ---- Stats : count par (direction, encours, statut) — agrégé dans le service ----
     @Query("""
-        SELECT d.id, d.nom, b.statut, COUNT(b)
+        SELECT d.id, d.nom, b.encours, b.statut, COUNT(b)
         FROM BesoinRecrutement b
         JOIN b.ficheDePoste f
         JOIN f.direction d
-        GROUP BY d.id, d.nom, b.statut
+        GROUP BY d.id, d.nom, b.encours, b.statut
         ORDER BY d.nom
         """)
     List<Object[]> countGroupByDirectionAndStatut();

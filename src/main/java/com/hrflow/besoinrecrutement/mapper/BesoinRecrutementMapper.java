@@ -18,18 +18,22 @@ public interface BesoinRecrutementMapper {
     @Mapping(target = "directionNom",         source = "ficheDePoste.direction.nom")
     @Mapping(target = "directeurId",          source = "directeur.id")
     @Mapping(target = "directeurNom",         source = "directeur.fullName")
+    @Mapping(target = "createdById",          source = "createdBy.id")
+    @Mapping(target = "createdByNom",         source = "createdBy.fullName")
     BesoinRecrutementResponse toResponse(BesoinRecrutement besoin);
 
     @Mapping(target = "ficheDePosteIntitule", source = "ficheDePoste.intitulePoste")
     @Mapping(target = "directionNom",         source = "ficheDePoste.direction.nom")
     @Mapping(target = "directeurNom",         source = "directeur.fullName")
+    @Mapping(target = "createdByNom",         source = "createdBy.fullName")
     BesoinRecrutementSummaryResponse toSummary(BesoinRecrutement besoin);
 
     @Mapping(target = "id",           ignore = true)
     @Mapping(target = "ficheDePoste", ignore = true)
     @Mapping(target = "directeur",    ignore = true)
-    @Mapping(target = "statut",       expression = "java(com.hrflow.besoinrecrutement.model.StatutBesoin.EN_COURS)")
-    @Mapping(target = "motifRefus",   ignore = true)
+    @Mapping(target = "createdBy",    ignore = true)
+    @Mapping(target = "encours",      ignore = true)   // positionné explicitement dans le service
+    @Mapping(target = "statut",       ignore = true)   // null jusqu'à la décision DRH
     @Mapping(target = "createdAt",    ignore = true)
     @Mapping(target = "updatedAt",    ignore = true)
     @Mapping(target = "version",      ignore = true)
@@ -38,8 +42,9 @@ public interface BesoinRecrutementMapper {
     @Mapping(target = "id",           ignore = true)
     @Mapping(target = "ficheDePoste", ignore = true)
     @Mapping(target = "directeur",    ignore = true)
+    @Mapping(target = "createdBy",    ignore = true)
+    @Mapping(target = "encours",      ignore = true)
     @Mapping(target = "statut",       ignore = true)
-    @Mapping(target = "motifRefus",   ignore = true)
     @Mapping(target = "createdAt",    ignore = true)
     @Mapping(target = "updatedAt",    ignore = true)
     @Mapping(target = "version",      ignore = true)

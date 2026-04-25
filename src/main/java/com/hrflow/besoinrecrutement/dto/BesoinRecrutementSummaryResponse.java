@@ -11,9 +11,11 @@ public record BesoinRecrutementSummaryResponse(
     String ficheDePosteIntitule,
     String directionNom,
     String directeurNom,
+    String createdByNom,
     int nombrePostes,
     LocalDate dateSouhaitee,
     PrioriteBesoin priorite,
-    StatutBesoin statut,
+    boolean encours,
+    StatutBesoin statut,      // null si encours=true
     LocalDateTime createdAt
 ) {}

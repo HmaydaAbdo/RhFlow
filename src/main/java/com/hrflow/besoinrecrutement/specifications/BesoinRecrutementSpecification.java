@@ -15,11 +15,13 @@ public final class BesoinRecrutementSpecification {
 
     // ---- Factory depuis SearchDto ----
     public static Specification<BesoinRecrutement> fromSearch(BesoinRecrutementSearchDto search) {
-        return Specification
-                .where(inDirection(search.directionId()))
-                .and(forFicheDePoste(search.ficheDePosteId()))
-                .and(hasStatut(search.statut()))
-                .and(hasPriorite(search.priorite()));
+        return Specification.allOf(
+                inDirection(search.directionId()),
+                forFicheDePoste(search.ficheDePosteId()),
+                hasStatut(search.statut()),
+                hasPriorite(search.priorite()),
+                hasEncours(search.encours()
+                ));
     }
 
     // ---- Restreindre à une liste de directions (usage DIRECTEUR) ----
@@ -63,10 +65,30 @@ public final class BesoinRecrutementSpecification {
         };
     }
 
-    public static Specification<BesoinRecrutement> belongsToDirecteur(Long directeurId) {
+    /**
+     * mineOnly : retourne les besoins où l'utilisateur est
+     *   - le directeur de la direction (directeur_id = userId)  OU
+     *   - le créateur du besoin        (created_by_id = userId)
+     */
+    public static Specification<BesoinRecrutement> belongsToUser(Long userId) {
         return (root, query, cb) -> {
-            if (directeurId == null) return cb.conjunction();
-            return cb.equal(root.get("directeur").get("id"), directeurId);
+            if (userId == null) return cb.conjunction();
+            return cb.or(
+                cb.equal(root.get("directeur").get("id"), userId),
+                cb.equal(root.get("createdBy").get("id"),  userId)
+            );
+        };
+    }
+
+    /** @deprecated Remplacé par {@link #belongsToUser(Long)} */
+    public static Specification<BesoinRecrutement> belongsToDirecteur(Long directeurId) {
+        return belongsToUser(directeurId);
+    }
+
+    public static Specification<BesoinRecrutement> hasEncours(Boolean encours) {
+        return (root, query, cb) -> {
+            if (encours == null) return cb.conjunction();
+            return cb.equal(root.get("encours"), encours);
         };
     }
 }

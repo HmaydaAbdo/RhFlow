@@ -14,12 +14,13 @@ public record BesoinRecrutementResponse(
     String directionNom,
     Long directeurId,
     String directeurNom,
+    Long createdById,
+    String createdByNom,
     int nombrePostes,
     LocalDate dateSouhaitee,
-    String justification,
     PrioriteBesoin priorite,
-    StatutBesoin statut,
-    String motifRefus,
+    boolean encours,
+    StatutBesoin statut,      // null si encours=true (aucune décision encore prise)
     LocalDateTime createdAt,
     LocalDateTime updatedAt
 ) {}

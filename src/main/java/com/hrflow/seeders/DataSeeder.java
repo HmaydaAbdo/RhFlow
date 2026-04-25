@@ -1,16 +1,13 @@
 package com.hrflow.seeders;
 
-import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
-import com.hrflow.besoinrecrutement.model.PrioriteBesoin;
-import com.hrflow.besoinrecrutement.model.StatutBesoin;
+
 import com.hrflow.besoinrecrutement.repositories.BesoinRecrutementRepository;
 import com.hrflow.direction.entities.Direction;
 import com.hrflow.direction.repositories.DirectionRepository;
 import com.hrflow.fichedeposte.model.FicheDePoste;
 import com.hrflow.fichedeposte.model.NiveauEtudes;
 import com.hrflow.fichedeposte.repositories.FicheDePosteRepository;
-import com.hrflow.projetrecrutement.model.ProjetRecrutement;
-import com.hrflow.projetrecrutement.repositories.ProjetRecrutementRepository;
+
 import com.hrflow.roles.entities.Role;
 import com.hrflow.users.entities.User;
 import com.hrflow.roles.repositories.RoleRepository;
@@ -20,7 +17,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,7 +31,6 @@ public class DataSeeder {
                                DirectionRepository directionRepository,
                                FicheDePosteRepository ficheDePosteRepository,
                                BesoinRecrutementRepository besoinRepository,
-                               ProjetRecrutementRepository projetRepository,
                                PasswordEncoder passwordEncoder) {
         return args -> {
 
@@ -273,87 +268,7 @@ public class DataSeeder {
                 }
             }
 
-            // ========== SEED BESOINS DE RECRUTEMENT ==========
-            // 3 besoins par fiche : 1 ARCHIVE (+ ProjetRecrutement), 1 REFUSE, 1 EN_COURS
-            // Contrainte métier : 1 seul EN_COURS par fiche → respectée ici
-            record SeedBesoin(
-                    StatutBesoin statut,
-                    PrioriteBesoin priorite,
-                    int nombrePostes,
-                    int moisDateSouhaitee,   // relatif à aujourd'hui
-                    String justification,
-                    String motifRefus        // null si non refusé
-            ) {}
 
-            List<SeedBesoin> lotParFiche = List.of(
-                    new SeedBesoin(StatutBesoin.ARCHIVE, PrioriteBesoin.HAUTE,   2,  3,
-                            "Renforcement de l'équipe suite à une augmentation de charge de travail prévue au prochain trimestre.",
-                            null),
-                    new SeedBesoin(StatutBesoin.REFUSE,  PrioriteBesoin.NORMALE, 1, -1,
-                            "Besoin lié au départ d'un collaborateur et à la nécessité de maintenir la continuité de service.",
-                            "Budget non disponible pour ce poste sur l'exercice en cours."),
-                    new SeedBesoin(StatutBesoin.EN_COURS, PrioriteBesoin.BASSE,  1,  6,
-                            "Développement de nouvelles activités nécessitant un profil complémentaire au sein de l'équipe.",
-                            null)
-            );
-
-            // findAllWithDirectionAndDirecteur charge direction + directeur eagerly
-            List<FicheDePoste> toutesLesFiches = ficheDePosteRepository.findAllWithDirectionAndDirecteur();
-
-            for (FicheDePoste fiche : toutesLesFiches) {
-
-                // Ne pas re-seeder si un besoin EN_COURS existe déjà pour cette fiche
-                if (besoinRepository.existsByFicheDePosteIdAndStatut(fiche.getId(), StatutBesoin.EN_COURS)) continue;
-
-                User directeur = fiche.getDirection().getDirecteur();
-
-                for (SeedBesoin sb : lotParFiche) {
-                    BesoinRecrutement besoin = new BesoinRecrutement();
-                    besoin.setFicheDePoste(fiche);
-                    besoin.setDirecteur(directeur);
-                    besoin.setNombrePostes(sb.nombrePostes());
-                    besoin.setDateSouhaitee(LocalDate.now().plusMonths(sb.moisDateSouhaitee()));
-                    besoin.setJustification(sb.justification());
-                    besoin.setPriorite(sb.priorite());
-                    besoin.setStatut(sb.statut());
-                    besoin.setMotifRefus(sb.motifRefus());
-                    BesoinRecrutement savedBesoin = besoinRepository.save(besoin);
-
-                    // Créer un ProjetRecrutement pour chaque besoin ARCHIVE
-                    if (sb.statut() == StatutBesoin.ARCHIVE
-                            && !projetRepository.existsByBesoinRecrutementId(savedBesoin.getId())) {
-                        ProjetRecrutement projet = new ProjetRecrutement();
-                        projet.setBesoinRecrutement(savedBesoin);
-                        projet.setFicheDePoste(fiche);
-                        projet.setNombrePostes(sb.nombrePostes());
-                        projetRepository.save(projet);
-                    }
-                }
-
-                System.out.println("==> 3 besoins + 1 projet créés pour la fiche : " + fiche.getIntitulePoste());
-            }
-
-            // ========== MIGRATION : besoins ACCEPTE legacy → ARCHIVE + ProjetRecrutement ==========
-            // Gère les bases de données existantes qui avaient le statut ACCEPTE avant la migration
-            List<BesoinRecrutement> besoinsAccepteLegacy = besoinRepository
-                    .findAll()
-                    .stream()
-                    .filter(b -> b.getStatut() == StatutBesoin.ACCEPTE)
-                    .toList();
-
-            for (BesoinRecrutement besoin : besoinsAccepteLegacy) {
-                besoin.setStatut(StatutBesoin.ARCHIVE);
-                besoinRepository.save(besoin);
-
-                if (!projetRepository.existsByBesoinRecrutementId(besoin.getId())) {
-                    ProjetRecrutement projet = new ProjetRecrutement();
-                    projet.setBesoinRecrutement(besoin);
-                    projet.setFicheDePoste(besoin.getFicheDePoste());
-                    projet.setNombrePostes(besoin.getNombrePostes());
-                    projetRepository.save(projet);
-                    System.out.println("==> Migration ACCEPTE→ARCHIVE + ProjetRecrutement créé : besoinId=" + besoin.getId());
-                }
-            }
         };
     }
 }

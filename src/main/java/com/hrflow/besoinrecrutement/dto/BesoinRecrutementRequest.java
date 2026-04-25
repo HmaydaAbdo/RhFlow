@@ -1,7 +1,10 @@
 package com.hrflow.besoinrecrutement.dto;
 
 import com.hrflow.besoinrecrutement.model.PrioriteBesoin;
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
 
@@ -17,10 +20,6 @@ public record BesoinRecrutementRequest(
     @NotNull(message = "La date souhaitée est obligatoire")
     @Future(message = "La date souhaitée doit être dans le futur")
     LocalDate dateSouhaitee,
-
-    @NotBlank(message = "La justification est obligatoire")
-    @Size(min = 10, max = 2000, message = "La justification ne peut pas dépasser 2000 caractères")
-    String justification,
 
     @NotNull(message = "La priorité est obligatoire")
     PrioriteBesoin priorite
