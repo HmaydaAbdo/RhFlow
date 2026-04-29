@@ -2,6 +2,7 @@ package com.hrflow.besoinrecrutement.service;
 
 import com.hrflow.besoinrecrutement.dto.*;
 import com.hrflow.besoinrecrutement.exception.BesoinRecrutementAccessDeniedException;
+import com.hrflow.besoinrecrutement.exception.BesoinRecrutementConflictException;
 import com.hrflow.besoinrecrutement.exception.BesoinRecrutementNotFoundException;
 import com.hrflow.besoinrecrutement.mapper.BesoinRecrutementMapper;
 import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
@@ -186,6 +187,14 @@ public class BesoinRecrutementService {
     public void delete(Long id) {
         BesoinRecrutement besoin = besoinRepository.findById(id)
                 .orElseThrow(() -> new BesoinRecrutementNotFoundException(id));
+
+        // Un besoin accepté a un projet de recrutement associé — on bloque la suppression.
+        // Pour supprimer ce besoin, le DRH doit d'abord changer la décision en "Refusé"
+        // (ce qui supprimera automatiquement le projet), puis supprimer le besoin.
+        if (StatutBesoin.ACCEPTE.equals(besoin.getStatut())) {
+            throw new BesoinRecrutementConflictException(
+                    "Ce besoin est lié à un projet de recrutement actif. " );
+        }
 
         besoinRepository.delete(besoin);
         log.info("Besoin en recrutement supprimé : id={}", id);
