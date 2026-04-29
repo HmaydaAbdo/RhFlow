@@ -32,6 +32,10 @@ public class ProjetRecrutement {
     @Column(nullable = false)
     private int nombrePostes;
 
+    /** Objet de mail unique que les candidats doivent utiliser pour postuler. */
+    @Column(name = "objet_candidature", nullable = false, unique = true, length = 255)
+    private String objetCandidature;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     private StatutProjet statut;
@@ -79,6 +83,9 @@ public class ProjetRecrutement {
 
     public int getNombrePostes() { return nombrePostes; }
     public void setNombrePostes(int nombrePostes) { this.nombrePostes = nombrePostes; }
+
+    public String getObjetCandidature() { return objetCandidature; }
+    public void setObjetCandidature(String objetCandidature) { this.objetCandidature = objetCandidature; }
 
     public StatutProjet getStatut() { return statut; }
     public void setStatut(StatutProjet statut) { this.statut = statut; }

@@ -8,6 +8,7 @@ public record ProjetRecrutementSummaryResponse(
     Long          id,
     StatutProjet  statut,
     int           nombrePostes,
+    String        objetCandidature,
     String        ficheDePosteIntitule,
     String        directionNom,
     String        directeurNom,

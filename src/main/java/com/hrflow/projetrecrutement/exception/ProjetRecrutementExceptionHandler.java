@@ -29,4 +29,11 @@ public class ProjetRecrutementExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse(409, "Conflict", ex.getMessage()));
     }
+
+    @ExceptionHandler(ProjetRecrutementConflictException.class)
+    public ResponseEntity<ErrorResponse> handleConflict(ProjetRecrutementConflictException ex) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(409, "Conflict", ex.getMessage()));
+    }
 }

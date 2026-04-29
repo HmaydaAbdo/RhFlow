@@ -5,8 +5,10 @@ import com.hrflow.direction.repositories.DirectionRepository;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementResponse;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementSearchDto;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementSummaryResponse;
+import com.hrflow.projetrecrutement.dto.UpdateObjetCandidatureRequest;
 import com.hrflow.projetrecrutement.exception.ProjetRecrutementAccessDeniedException;
 import com.hrflow.projetrecrutement.exception.ProjetRecrutementAlreadyClosedException;
+import com.hrflow.projetrecrutement.exception.ProjetRecrutementConflictException;
 import com.hrflow.projetrecrutement.exception.ProjetRecrutementNotFoundException;
 import com.hrflow.projetrecrutement.mapper.ProjetRecrutementMapper;
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
@@ -29,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class ProjetRecrutementService {
@@ -122,9 +125,18 @@ public class ProjetRecrutementService {
         projet.setFicheDePoste(besoin.getFicheDePoste());
         projet.setNombrePostes(besoin.getNombrePostes());
         projet.setStatut(StatutProjet.OUVERT);
-        projetRepository.save(projet);
+        // Placeholder unique (UUID) — remplacé dès que l'ID est généré par la base
+        projet.setObjetCandidature(UUID.randomUUID().toString());
 
-        log.info("ProjetRecrutement créé automatiquement pour besoin id={}", besoin.getId());
+        // Premier save pour obtenir l'ID généré par la base
+        ProjetRecrutement saved = projetRepository.saveAndFlush(projet);
+
+        // Génération de l'objet candidature avec l'ID réel
+        saved.setObjetCandidature(generateObjetCandidature(saved));
+        projetRepository.save(saved);
+
+        log.info("ProjetRecrutement créé automatiquement pour besoin id={}, objet={}",
+                besoin.getId(), saved.getObjetCandidature());
     }
 
     /**
@@ -138,6 +150,32 @@ public class ProjetRecrutementService {
             log.info("ProjetRecrutement id={} supprimé (besoin id={} → REFUSE)",
                     projet.getId(), besoinId);
         });
+    }
+
+    // =====================================================================
+    // OBJET CANDIDATURE — DRH / ADMIN uniquement
+    // =====================================================================
+
+    /**
+     * Met à jour manuellement l'objet de candidature d'un projet.
+     * Vérifie l'unicité (insensible à la casse) avant la sauvegarde.
+     */
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
+    @Transactional
+    public ProjetRecrutementResponse updateObjetCandidature(Long id, UpdateObjetCandidatureRequest request) {
+        ProjetRecrutement projet = loadWithDetails(id);
+
+        String newObjet = request.objetCandidature().strip();
+        if (projetRepository.existsByObjetCandidatureIgnoreCaseAndIdNot(newObjet, id)) {
+            throw new ProjetRecrutementConflictException(
+                    "Cet objet de candidature est déjà utilisé par un autre projet de recrutement.");
+        }
+
+        projet.setObjetCandidature(newObjet);
+        ProjetRecrutement saved = projetRepository.save(projet);
+        log.info("Objet candidature mis à jour : projet id={}, objet='{}'", saved.getId(), saved.getObjetCandidature());
+
+        return projetMapper.toResponse(saved);
     }
 
     // =====================================================================
@@ -198,5 +236,15 @@ public class ProjetRecrutementService {
         // findWithRolesByEmail charge les rôles en JOIN — évite le lazy load dans hasRole()
         return userRepository.findWithRolesByEmail(auth.getName())
                 .orElseThrow(() -> new UserNotFoundException(auth.getName()));
+    }
+
+    /**
+     * Génère l'objet de candidature au format :
+     * "Candidature – {Intitulé du poste} – Réf. XXXX"
+     * où XXXX est l'ID du projet sur 4 chiffres minimum.
+     */
+    private String generateObjetCandidature(ProjetRecrutement projet) {
+        String intitule = projet.getFicheDePoste().getIntitulePoste();
+        return "Candidature – %s – Réf. %04d".formatted(intitule, projet.getId());
     }
 }

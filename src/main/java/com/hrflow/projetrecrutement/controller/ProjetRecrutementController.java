@@ -3,8 +3,10 @@ package com.hrflow.projetrecrutement.controller;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementResponse;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementSearchDto;
 import com.hrflow.projetrecrutement.dto.ProjetRecrutementSummaryResponse;
+import com.hrflow.projetrecrutement.dto.UpdateObjetCandidatureRequest;
 import com.hrflow.projetrecrutement.model.StatutProjet;
 import com.hrflow.projetrecrutement.service.ProjetRecrutementService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -65,5 +67,18 @@ public class ProjetRecrutementController {
     @PatchMapping("/{id}/fermer")
     public ResponseEntity<ProjetRecrutementResponse> fermer(@PathVariable Long id) {
         return ResponseEntity.ok(projetService.fermer(id));
+    }
+
+    /**
+     * PATCH /projets-recrutement/{id}/objet-candidature
+     * Permet à un DRH/ADMIN de personnaliser l'objet de candidature d'un projet.
+     * Accès : ADMIN, DRH uniquement
+     */
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
+    @PatchMapping("/{id}/objet-candidature")
+    public ResponseEntity<ProjetRecrutementResponse> updateObjetCandidature(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateObjetCandidatureRequest request) {
+        return ResponseEntity.ok(projetService.updateObjetCandidature(id, request));
     }
 }

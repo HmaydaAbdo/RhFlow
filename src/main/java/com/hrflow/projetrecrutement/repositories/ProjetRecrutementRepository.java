@@ -35,6 +35,9 @@ public interface ProjetRecrutementRepository
 
     boolean existsByBesoinRecrutementId(Long besoinId);
 
+    /** Vérifie l'unicité de l'objet candidature en excluant le projet en cours de modification. */
+    boolean existsByObjetCandidatureIgnoreCaseAndIdNot(String objetCandidature, Long id);
+
     long countByStatut(StatutProjet statut);
 
     @Query("""
