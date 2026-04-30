@@ -47,7 +47,7 @@ public interface JobAnnouncementGenerator {
 
     [Paragraphe 4 — invitation sincère à candidater]
 
-    📧 Candidatures : **[email recrutement fourni dans la fiche]**
+    📧 **[email recrutement fourni dans la fiche]** — objet du mail : **[objet candidature fourni dans la fiche]**
 
     ---
 
@@ -65,11 +65,7 @@ public interface JobAnnouncementGenerator {
     4. Utiliser **gras** pour 2-3 éléments clés par paragraphe (jamais toute une phrase).
     5. Commencer DIRECTEMENT par l'accroche, sans phrase d'introduction.
 
-    ACCROCHE — INTERDICTIONS STRICTES :
-    JAMAIS commencer par : "Nous recherchons", "Vous êtes passionné",
-    "Rejoignez notre équipe", "Nous sommes à la recherche", "Notre entreprise recrute",
-    "Nous avons le plaisir".
-    JAMAIS : "dynamique", "booster", "synergies", "talent", "motivé".
+    
 
     HASHTAGS : exactement 4, sectoriels et pertinents. Rien après.
     """)

@@ -3,33 +3,42 @@ package com.hrflow.ai.utils;
 import com.hrflow.ai.config.AiFallbackProperties.CompanyProfile;
 import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
 import com.hrflow.fichedeposte.model.FicheDePoste;
+import com.hrflow.projetrecrutement.model.ProjetRecrutement;
 
 import java.time.LocalDate;
 import java.time.Year;
 
 public record JobDescriptionContext(
         // ── Company (from config, not hardcoded) ──────────────────────────────
-        String companyNom,
-        String companySecteur,
-        String companyVille,
-        int    companyAnneeFondation,
-        String companyEmail,
+        String    companyNom,
+        String    companySecteur,
+        String    companyVille,
+        int       companyAnneeFondation,
+        String    companyEmail,
         // ── Job description ───────────────────────────────────────────────────
-        String intitulePoste,
-        String directionNom,
-        String missionPrincipale,
-        String activitesPrincipales,
-        String competencesTechniques,
-        String competencesManageriales,
-        String niveauEtudes,
-        String domaineFormation,
-        int    anneesExperience,
-        int    nombrePostes,
-        String priorite,
-        LocalDate dateSouhaitee
+        String    intitulePoste,
+        String    directionNom,
+        String    missionPrincipale,
+        String    activitesPrincipales,
+        String    competencesTechniques,
+        String    competencesManageriales,
+        String    niveauEtudes,
+        String    domaineFormation,
+        int       anneesExperience,
+        int       nombrePostes,
+        String    priorite,
+        LocalDate dateSouhaitee,
+        // ── Candidature ───────────────────────────────────────────────────────
+        String    objetCandidature
 ) {
-    public static JobDescriptionContext from(BesoinRecrutement besoin, CompanyProfile company) {
-        FicheDePoste fiche = besoin.getFicheDePoste();
+    /**
+     * Construit le contexte à partir du ProjetRecrutement (qui porte lui-même
+     * la FicheDePoste et le BesoinRecrutement déjà chargés eagerly).
+     */
+    public static JobDescriptionContext from(ProjetRecrutement projet, CompanyProfile company) {
+        FicheDePoste      fiche  = projet.getFicheDePoste();
+        BesoinRecrutement besoin = projet.getBesoinRecrutement();
+
         return new JobDescriptionContext(
                 company.nom(),
                 company.secteur(),
@@ -47,7 +56,8 @@ public record JobDescriptionContext(
                 fiche.getAnneesExperience(),
                 besoin.getNombrePostes(),
                 besoin.getPriorite().name(),
-                besoin.getDateSouhaitee()
+                besoin.getDateSouhaitee(),
+                projet.getObjetCandidature()
         );
     }
 
@@ -63,20 +73,21 @@ public record JobDescriptionContext(
             - **Email recrutement** : %s
 
             ## Fiche de poste
-            - **Intitulé**               : %s
-            - **Direction**              : %s
-            - **Mission principale**     : %s
-            - **Activités**              : %s
-            - **Compétences techniques** : %s
+            - **Intitulé**                : %s
+            - **Direction**               : %s
+            - **Mission principale**      : %s
+            - **Activités**               : %s
+            - **Compétences techniques**  : %s
             - **Compétences managériales**: %s
-            - **Niveau d'études**        : %s
-            - **Domaine de formation**   : %s
-            - **Expérience requise**     : %d an(s)
+            - **Niveau d'études**         : %s
+            - **Domaine de formation**    : %s
+            - **Expérience requise**      : %d an(s)
 
-            ## Besoin de recrutement
+            ## Recrutement
             - **Nombre de postes** : %d
             - **Priorité**         : %s
             - **Prise de poste**   : %s
+            - **Objet candidature**: %s
             """.formatted(
                 companyNom, companySecteur, companyVille,
                 companyAnneeFondation, ansFondation, companyEmail,
@@ -84,7 +95,8 @@ public record JobDescriptionContext(
                 activitesPrincipales, competencesTechniques,
                 competencesManageriales, niveauEtudes,
                 domaineFormation, anneesExperience,
-                nombrePostes, priorite, dateSouhaitee
+                nombrePostes, priorite, dateSouhaitee,
+                objetCandidature
         );
     }
 }
