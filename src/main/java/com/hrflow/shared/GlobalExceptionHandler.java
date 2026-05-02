@@ -1,5 +1,6 @@
 package com.hrflow.shared;
 
+import com.hrflow.docling.exception.DoclingConversionException;
 import com.hrflow.shared.dtos.ErrorResponse;
 import com.hrflow.shared.dtos.ValidationErrorResponse;
 import com.hrflow.storage.exception.MinioStorageException;
@@ -74,6 +75,15 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse(409, "Conflict",
                         "Cette ressource ne peut pas être supprimée car elle est référencée par d'autres données."));
+    }
+
+    @ExceptionHandler(DoclingConversionException.class)
+    public ResponseEntity<ErrorResponse> handleDoclingConversion(DoclingConversionException ex) {
+        log.error("[Docling] erreur conversion : {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse(503, "Service Unavailable",
+                        "Le service de conversion de documents est temporairement indisponible. Veuillez réessayer."));
     }
 
     @ExceptionHandler(MinioStorageException.class)
