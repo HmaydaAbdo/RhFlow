@@ -8,6 +8,7 @@ import com.hrflow.ai.service.CvEvaluator;
 import com.hrflow.candidature.model.Candidature;
 import com.hrflow.candidature.model.RecommandationIA;
 import com.hrflow.candidature.model.StatutCandidature;
+
 import com.hrflow.candidature.repository.CandidatureRepository;
 import com.hrflow.docling.service.DoclingService;
 import com.hrflow.fichedeposte.model.FicheDePoste;
@@ -19,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -31,8 +31,13 @@ import java.util.List;
  *
  * Pattern deux TX courtes :
  *   TX 1 (courte) : load candidature → EN_COURS → commit → connexion libérée
- *   [MinIO download, Docling, LLM extraction, LLM évaluation — aucune connexion DB tenue]
+ *   [Docling (URL présignée), LLM extraction, LLM évaluation — aucune connexion DB tenue]
  *   TX 2 (courte) : reload candidature → persister résultats → EVALUE/ERREUR → commit
+ *
+ * Architecture URL-source (zéro copie mémoire) :
+ *   Ce pipeline ne télécharge jamais le CV. Il génère une URL présignée MinIO
+ *   que docling-serve consomme directement. Spring Boot n'est qu'un orchestrateur.
+ *   Prérequis : docling-serve doit pouvoir joindre MinIO (hostname interne).
  *
  * Gardes de production :
  *   — Markdown vide : fail-fast si Docling ne peut pas extraire de texte (PDF scanné)
@@ -95,13 +100,13 @@ public class CvPipelineService {
 
         // ── Appels externes — aucune connexion DB tenue ───────────────────────
         try {
-            // Étape 1 : Download MinIO + conversion Docling dans un seul try-with-resources
-            log.info("[Pipeline] téléchargement MinIO → {}", snapshot.getCheminMinio());
-            String cvMarkdown;
-            try (InputStream fileStream = minioService.download(snapshot.getCheminMinio())) {
-                log.info("[Pipeline] conversion Docling → Markdown ({})", snapshot.getNomFichier());
-                cvMarkdown = doclingService.toMarkdown(fileStream, snapshot.getNomFichier());
-            }
+            // Étape 1 : Génération URL présignée + conversion Docling
+            // docling-serve télécharge le CV DIRECTEMENT depuis MinIO via l'URL présignée.
+            // Spring Boot ne charge aucun byte en mémoire — zéro copie, zéro Base64.
+            log.info("[Pipeline] génération URL présignée MinIO → {}", snapshot.getCheminMinio());
+            String documentUrl = minioService.presignedUrl(snapshot.getCheminMinio());
+            log.info("[Pipeline] conversion Docling → Markdown ({})", snapshot.getNomFichier());
+            String cvMarkdown = doclingService.toMarkdown(documentUrl, snapshot.getNomFichier());
 
             // Garde : CV vide ou illisible — PDF scanné sans couche texte, fichier corrompu…
             // On fail-fast ici plutôt que de gaspiller deux appels LLM sur du vide.

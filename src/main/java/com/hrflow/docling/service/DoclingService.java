@@ -12,9 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Base64;
 import java.util.List;
 
 /**
@@ -24,7 +21,25 @@ import java.util.List;
  * grâce à un pipeline IA (layout analysis, table extraction, OCR si nécessaire).
  * Il fonctionne comme un service indépendant scalable (Docker / Kubernetes).
  *
- * Endpoint : POST {baseUrl}/v1/convert/source   (API stable, v1alpha obsolète)
+ * ── Architecture URL-source (recommandée en production) ───────────────────────
+ *
+ * Ce service envoie une URL présignée MinIO à docling-serve.
+ * docling-serve télécharge le fichier DIRECTEMENT depuis MinIO, sans que
+ * Spring Boot charge les bytes en mémoire ni les Base64-encode.
+ *
+ *   Spring Boot ──[URL]──▶ docling-serve ──[GET]──▶ MinIO
+ *                                        ◀─[bytes]─
+ *
+ * Avantages vs l'approche Base64 :
+ *  — Zéro copie mémoire dans le thread Spring Boot
+ *  — Pas d'overhead Base64 (+33% sur la taille du payload)
+ *  — docling-serve télécharge en streaming natif, pas de buffering supplémentaire
+ *
+ * Prérequis réseau : docling-serve doit pouvoir joindre MinIO.
+ * En Docker Compose / Kubernetes, configurer app.minio.endpoint avec le hostname
+ * interne du service (ex: http://minio:9000), pas localhost.
+ *
+ * Endpoint : POST {baseUrl}/v1/convert/source  (API stable v1, format v1.9+)
  *
  * Déploiement local :
  *   docker run -p 5001:5001 ds4sd/docling-serve:latest
@@ -37,13 +52,16 @@ public class DoclingService {
 
     private static final Logger log = LoggerFactory.getLogger(DoclingService.class);
 
-    /** Endpoint de conversion (API stable docling-serve ≥ 1.0). */
+    /** Endpoint de conversion stable (API v1, format sources unifié v1.9+). */
     private static final String CONVERT_PATH = "/v1/convert/source";
 
     /** Endpoint de santé docling-serve — vérifié au démarrage Spring. */
     private static final String HEALTH_PATH = "/health";
 
-    private final RestClient       restClient;
+    /** Kind HTTP utilisé dans le payload sources (API docling-serve v1.9+). */
+    private static final String KIND_HTTP = "http";
+
+    private final RestClient        restClient;
     private final DoclingProperties props;
 
     public DoclingService(@Qualifier("doclingRestClient") RestClient restClient,
@@ -76,25 +94,25 @@ public class DoclingService {
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Convertit un fichier (PDF ou DOCX) en Markdown via docling-serve.
+     * Convertit un document (PDF ou DOCX) en Markdown via docling-serve.
      *
-     * Le fichier est lu en mémoire depuis l'InputStream, encodé en Base64,
-     * puis envoyé à docling-serve qui applique son pipeline IA de conversion
-     * (layout analysis, tables, OCR si nécessaire).
+     * Le document est téléchargé directement depuis {@code documentUrl} par docling-serve —
+     * Spring Boot ne charge aucun byte en mémoire. Fournir une URL présignée MinIO
+     * valide (générée via {@code MinioService.presignedUrl()}).
      *
-     * @param fileStream  InputStream du fichier (depuis MinIO — DOIT être fermé par l'appelant)
-     * @param filename    Nom original du fichier, ex: "cv_alami.pdf" (docling infère le format)
+     * Prérequis : docling-serve doit pouvoir résoudre l'URL (accès réseau à MinIO).
+     * En Docker Compose / Kubernetes, utiliser le hostname interne pour app.minio.endpoint.
+     *
+     * @param documentUrl URL accessible par docling-serve (ex: URL présignée MinIO interne)
+     * @param filename    Nom du fichier, utilisé pour les logs (ex: "cv_alami.pdf")
      * @return            Contenu Markdown structuré extrait du document
      * @throws DoclingConversionException si docling-serve est indisponible, si la réponse
-     *                                    est vide, ou si la lecture du stream échoue
+     *                                    est vide, ou si l'URL n'est pas joignable par docling
      */
-    public String toMarkdown(InputStream fileStream, String filename) {
-        byte[] fileBytes = readAllBytes(fileStream, filename);
-        String base64    = Base64.getEncoder().encodeToString(fileBytes);
+    public String toMarkdown(String documentUrl, String filename) {
+        ConvertRequest request = buildRequest(documentUrl);
 
-        ConvertRequest request = buildRequest(base64, filename);
-
-        log.debug("[Docling] POST {} — fichier='{}' ({} bytes)", CONVERT_PATH, filename, fileBytes.length);
+        log.debug("[Docling] POST {} — fichier='{}', url='{}'", CONVERT_PATH, filename, documentUrl);
 
         try {
             ConvertResponse response = restClient.post()
@@ -115,10 +133,10 @@ public class DoclingService {
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private ConvertRequest buildRequest(String base64, String filename) {
-        var fileSource = new FileSource(base64, filename);
-        var options    = new ConvertOptions(List.of("md"));
-        return new ConvertRequest(List.of(fileSource), options);
+    private ConvertRequest buildRequest(String documentUrl) {
+        var source  = new DocumentSource(KIND_HTTP, documentUrl);
+        var options = new ConvertOptions(List.of("md"));
+        return new ConvertRequest(List.of(source), options);
     }
 
     private String extractMarkdown(ConvertResponse response, String filename) {
@@ -135,29 +153,28 @@ public class DoclingService {
         return md;
     }
 
-    private byte[] readAllBytes(InputStream is, String filename) {
-        try {
-            return is.readAllBytes();
-        } catch (IOException e) {
-            throw new DoclingConversionException(
-                    "Impossible de lire le fichier '%s' depuis le stream".formatted(filename), e);
-        }
-    }
-
     // ── Request / Response DTOs (internes à ce service) ──────────────────────
 
-    record FileSource(
-            @JsonProperty("base64_string") String base64String,
-            @JsonProperty("filename")      String filename
+    /**
+     * Source unifiée — format docling-serve API v1.9+.
+     * Le champ {@code kind} est le discriminateur : "http" pour une URL distante.
+     */
+    record DocumentSource(
+            @JsonProperty("kind") String kind,
+            @JsonProperty("url")  String url
     ) {}
 
     record ConvertOptions(
             @JsonProperty("to_formats") List<String> toFormats
     ) {}
 
+    /**
+     * Corps de la requête POST /v1/convert/source.
+     * Format unifié v1.9+ : "sources" remplace les anciens "file_sources" / "http_sources".
+     */
     record ConvertRequest(
-            @JsonProperty("file_sources") List<FileSource>  fileSources,
-            @JsonProperty("options")      ConvertOptions     options
+            @JsonProperty("sources") List<DocumentSource> sources,
+            @JsonProperty("options") ConvertOptions       options
     ) {}
 
     record DocumentContent(
