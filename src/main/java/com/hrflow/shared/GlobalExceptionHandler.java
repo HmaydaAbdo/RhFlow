@@ -2,6 +2,7 @@ package com.hrflow.shared;
 
 import com.hrflow.shared.dtos.ErrorResponse;
 import com.hrflow.shared.dtos.ValidationErrorResponse;
+import com.hrflow.storage.exception.MinioStorageException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -73,6 +74,15 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse(409, "Conflict",
                         "Cette ressource ne peut pas être supprimée car elle est référencée par d'autres données."));
+    }
+
+    @ExceptionHandler(MinioStorageException.class)
+    public ResponseEntity<ErrorResponse> handleMinioStorage(MinioStorageException ex) {
+        log.error("[MinIO] erreur infrastructure : {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse(503, "Service Unavailable",
+                        "Le service de stockage est temporairement indisponible. Veuillez réessayer."));
     }
 
     @ExceptionHandler(Exception.class)
