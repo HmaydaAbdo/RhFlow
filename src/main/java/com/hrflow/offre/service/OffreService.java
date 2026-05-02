@@ -38,13 +38,36 @@ public class OffreService {
         this.aiOfferService   = aiOfferService;
     }
 
-    // =====================================================================
-    // GÉNÉRER (ou régénérer) — DRH / ADMIN
-    // =====================================================================
+    // ── Générer (ou régénérer) — DRH / ADMIN ─────────────────────────────────────
 
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
-    @Transactional
+    /**
+     * FIX #2 — Connexion DB libérée pendant l'appel LLM.
+     *
+     * Pattern : deux transactions courtes séparées par l'appel IA (hors transaction).
+     *
+     *  TX 1 (readOnly) : charger projet + vérifications métier → connexion libérée
+     *  [appel LLM — 5 à 30 s — AUCUNE connexion tenue]
+     *  TX 2 (write)    : upsert Offre → connexion prise le temps du save()
+     *
+     * Sans ce pattern, une seule @Transactional tenait la connexion pendant toute
+     * la durée du LLM → pool exhaustion sous charge.
+     */
+    @PreAuthorize("hasAnyAuthority('ADMIN','DRH')")
     public OffreResponse generer(Long projetId) {
+
+        // ── TX 1 : lecture + validation (connexion libérée à la fin du bloc) ──────
+        String prompt = chargerEtValider(projetId);
+
+        // ── Hors transaction : appel LLM (peut durer 5–30 s) ─────────────────────
+        log.info("[Offre] appel LLM pour projet={}", projetId);
+        String contenu = aiOfferService.generateSync(prompt);
+
+        // ── TX 2 : persistance ────────────────────────────────────────────────────
+        return sauvegarderOffre(projetId, contenu);
+    }
+
+    @Transactional(readOnly = true)
+    protected String chargerEtValider(Long projetId) {
         ProjetRecrutement projet = projetRepository.findWithDetailsById(projetId)
                 .orElseThrow(() -> new ProjetRecrutementNotFoundException(projetId));
 
@@ -53,20 +76,21 @@ public class OffreService {
                     "Génération impossible : le projet %d n'est pas OUVERT (statut : %s)"
                             .formatted(projetId, projet.getStatut()));
         }
+        return aiOfferService.buildValidatedPrompt(projetId);
+    }
 
-        // Génération IA (hors transaction pour ne pas tenir la connexion pendant l'appel LLM)
-        String prompt  = aiOfferService.buildValidatedPrompt(projetId);
-        String contenu = aiOfferService.generateSync(prompt);
+    @Transactional
+    protected OffreResponse sauvegarderOffre(Long projetId, String contenu) {
+        ProjetRecrutement projet = projetRepository.findById(projetId)
+                .orElseThrow(() -> new ProjetRecrutementNotFoundException(projetId));
 
-        // Upsert : on écrase l'offre existante si elle existe déjà
         Offre offre = offreRepository.findByProjetRecrutementId(projetId)
                 .orElseGet(Offre::new);
-
         offre.setProjetRecrutement(projet);
         offre.setContenu(contenu);
 
         Offre saved = offreRepository.save(offre);
-        log.info("Offre {} pour projet id={}, poste='{}'",
+        log.info("[Offre] {} pour projet={}, poste='{}'",
                 offre.getId() == null ? "créée" : "régénérée",
                 projetId,
                 projet.getFicheDePoste().getIntitulePoste());
@@ -74,11 +98,9 @@ public class OffreService {
         return offreMapper.toResponse(saved);
     }
 
-    // =====================================================================
-    // READ par projet — DRH / ADMIN / DIRECTEUR
-    // =====================================================================
+    // ── Read par projet — DRH / ADMIN / DIRECTEUR ────────────────────────────────
 
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH', 'DIRECTEUR')")
+    @PreAuthorize("hasAnyAuthority('ADMIN','DRH','DIRECTEUR')")
     @Transactional(readOnly = true)
     public OffreResponse getByProjetId(Long projetId) {
         Offre offre = offreRepository.findByProjetRecrutementId(projetId)
@@ -86,20 +108,16 @@ public class OffreService {
         return offreMapper.toResponse(offre);
     }
 
-    // =====================================================================
-    // ÉDITION MANUELLE — DRH / ADMIN
-    // =====================================================================
+    // ── Édition manuelle — DRH / ADMIN ───────────────────────────────────────────
 
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
+    @PreAuthorize("hasAnyAuthority('ADMIN','DRH')")
     @Transactional
     public OffreResponse update(Long projetId, OffreUpdateRequest request) {
         Offre offre = offreRepository.findByProjetRecrutementId(projetId)
                 .orElseThrow(() -> new OffreNotFoundException(projetId));
-
         offre.setContenu(request.contenu());
         Offre saved = offreRepository.save(offre);
-
-        log.info("Offre modifiée manuellement pour projet id={}", projetId);
+        log.info("[Offre] modifiée manuellement pour projet={}", projetId);
         return offreMapper.toResponse(saved);
     }
 }
