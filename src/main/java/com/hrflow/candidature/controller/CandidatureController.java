@@ -34,6 +34,9 @@ public class CandidatureController {
     public CandidatureResponse upload(
             @PathVariable Long projetId,
             @RequestParam("file") MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Le fichier CV est obligatoire et ne peut pas être vide.");
+        }
         return service.upload(projetId, file);
     }
 

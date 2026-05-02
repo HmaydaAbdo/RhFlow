@@ -71,11 +71,8 @@ public class SecurityConfig {
                         .requestMatchers("/auth/login", "/auth/refresh").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 
-                        // ---- Own profile (self-service) ----
-                        .requestMatchers("/users/me/**").authenticated()
-
                         // ---- Fallback : toute autre ressource nécessite authentification.
-                        //      Les autorisations  sont posées via @PreAuthorize au niveau controller.
+                        //      Les autorisations fines sont posées via @PreAuthorize au niveau controller.
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 ->
