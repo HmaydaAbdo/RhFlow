@@ -214,4 +214,168 @@ public class CvPipelineService {
             final RecommandationIA finalReco  = recommandation;
 
             txWrite.execute(status -> {
-                Candidature c = candidatu
+                Candidature c = candidatureRepo.findByIdWithProjet(candidatureId)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Candidature disparue en TX2 : " + candidatureId));
+                c.setNomCandidat(normalise(finalInfo.nomCandidat()));
+                c.setEmailCandidat(normalise(finalInfo.emailCandidat()));
+                c.setTelephoneCandidat(normalise(finalInfo.telephoneCandidat()));
+                c.setScoreMatching(finalScore);
+                c.setPointsForts(toJson(finalEval.pointsForts()));
+                c.setPointsManquants(toJson(finalEval.pointsManquants()));
+                c.setRecommandation(finalReco);
+                c.setJustificationIa(finalEval.justificationIa());
+                c.setStatut(StatutCandidature.EVALUE);
+                c.setEvalueLe(LocalDateTime.now());
+                return candidatureRepo.save(c);
+            });
+
+            recordOutcome("success");
+            totalSample.stop(Timer.builder(METRIC_TOTAL).register(meterRegistry));
+            log.info("[Pipeline] candidature={} → EVALUE — score={}, recommandation={}",
+                    candidatureId, finalScore, finalReco);
+
+        } catch (Exception e) {
+            log.error("[Pipeline] échec traitement candidature={} : {}", candidatureId, e.getMessage(), e);
+            recordOutcome("error");
+            totalSample.stop(Timer.builder(METRIC_TOTAL).register(meterRegistry));
+            markErreur(candidatureId, "Erreur système : " + truncate(e.getMessage(), 500));
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Recharge la candidature dans une TX propre et la marque ERREUR.
+     * Utilise un reload (pas le snapshot détaché de TX 1) pour garantir
+     * un état Hibernate sain quelle que soit la cause de l'échec.
+     * La candidature ne reste jamais bloquée en EN_COURS.
+     */
+    private void markErreur(Long candidatureId, String message) {
+        try {
+            txWrite.execute(status -> {
+                candidatureRepo.findByIdWithProjet(candidatureId).ifPresent(c -> {
+                    c.setStatut(StatutCandidature.ERREUR);
+                    c.setJustificationIa(message);
+                    candidatureRepo.save(c);
+                });
+                return null;
+            });
+        } catch (Exception ex) {
+            log.error("[Pipeline] impossible de marquer ERREUR pour candidature={} : {}",
+                    candidatureId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Incrémente le counter de résultats pipeline.
+     *
+     * @param result "success" | "error"
+     */
+    private void recordOutcome(String result) {
+        Counter.builder(METRIC_COMPLETED)
+                .tag(TAG_RESULT, result)
+                .description("Nombre de pipelines terminés par résultat")
+                .register(meterRegistry)
+                .increment();
+    }
+
+    /**
+     * Vérifie la cohérence entre le score et la recommandation retournés par le LLM.
+     * Si incohérents, le score est la source de vérité — la recommandation est recalculée.
+     * Exemple : score=30 avec "A_CONVOQUER" → corrigé en "NE_CORRESPOND_PAS".
+     */
+    private static RecommandationIA enforceCoherence(int score, RecommandationIA parsed) {
+        RecommandationIA expected = scoreToRecommandation(score);
+        if (expected != parsed) {
+            log.warn("[Pipeline] incohérence LLM — score={} implique '{}' mais LLM a retourné '{}' → corrigé",
+                    score, expected, parsed);
+            return expected;
+        }
+        return parsed;
+    }
+
+    /** Calcule la recommandation attendue d'après le barème défini dans le prompt CvEvaluator. */
+    private static RecommandationIA scoreToRecommandation(int score) {
+        if (score >= 75) return RecommandationIA.A_CONVOQUER;
+        if (score >= 45) return RecommandationIA.A_ETUDIER;
+        return RecommandationIA.NE_CORRESPOND_PAS;
+    }
+
+    /**
+     * Construit le contexte textuel de la fiche de poste pour le prompt d'évaluation.
+     * safe() remplace null par "" — évite le mot "null" dans le prompt LLM.
+     */
+    private static String buildFicheDePosteTexte(FicheDePoste fdp) {
+        return """
+                Poste : %s
+                Mission principale : %s
+                Activités principales : %s
+                Niveau d'études requis : %s
+                Domaine de formation : %s
+                Années d'expérience requises : %d
+                Compétences techniques : %s
+                Compétences managériales : %s
+                """.formatted(
+                safe(fdp.getIntitulePoste()),
+                safe(fdp.getMissionPrincipale()),
+                safe(fdp.getActivitesPrincipales()),
+                safe(fdp.getNiveauEtudes().toString()),
+                safe(fdp.getDomaineFormation()),
+                fdp.getAnneesExperience(),
+                safe(fdp.getCompetencesTechniques()),
+                safe(fdp.getCompetencesManageriales())
+        );
+    }
+
+    /**
+     * Sérialise une List&lt;String&gt; en JSON pour stockage en colonne TEXT.
+     * {@code CandidatureMapper.parseJsonList()} désérialisera ce JSON à la lecture.
+     * Retourne "[]" en cas d'erreur ou de liste null/vide — jamais null en base.
+     */
+    private String toJson(List<String> list) {
+        if (list == null || list.isEmpty()) return "[]";
+        try {
+            return objectMapper.writeValueAsString(list);
+        } catch (Exception e) {
+            log.warn("[Pipeline] sérialisation JSON échouée : {} — stockage '[]'", e.getMessage());
+            return "[]";
+        }
+    }
+
+    /** Retourne "" si null — évite "null" dans les prompts LLM. */
+    private static String safe(String value) {
+        return value != null ? value : "";
+    }
+
+    /**
+     * Convertit la chaîne renvoyée par le LLM en enum RecommandationIA.
+     * Tolère variations de casse et séparateurs parasites.
+     * Fallback → A_ETUDIER (valeur neutre) — enforceCoherence() corrigera ensuite si besoin.
+     */
+    private static RecommandationIA parseRecommandation(String raw) {
+        if (raw == null) return RecommandationIA.A_ETUDIER;
+        String cleaned = raw.trim().toUpperCase().replace(' ', '_').replace('-', '_');
+        return switch (cleaned) {
+            case "A_CONVOQUER"       -> RecommandationIA.A_CONVOQUER;
+            case "NE_CORRESPOND_PAS" -> RecommandationIA.NE_CORRESPOND_PAS;
+            default                  -> RecommandationIA.A_ETUDIER;
+        };
+    }
+
+    /** Score borné entre 0 et 100 — protège contre les hallucinations hors-barème. */
+    private static int clampScore(int score) {
+        return Math.max(0, Math.min(100, score));
+    }
+
+    /** Retourne null si la valeur est null ou vide, sinon la valeur trimmée. */
+    private static String normalise(String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
+    }
+
+    /** Tronque un message d'erreur pour ne pas saturer la colonne justificationIa. */
+    private static String truncate(String msg, int max) {
+        if (msg == null) return "Erreur inconnue";
+        return msg.length() <= max ? msg : msg.substring(0, max) + "…";
+    }
+}

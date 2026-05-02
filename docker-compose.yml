@@ -19,4 +19,128 @@ version: '3.9'
 #   docling-serve tourne dans Docker et doit pouvoir les consommer.
 #
 #   Solution : MINIO_ENDPOINT=http://host.docker.internal:9000 dans le .env
-#   →
+#   → les URLs présignées utilisent host.docker.internal comme hostname
+#   → docling-serve résout ce hostname vers la machine hôte via extra_hosts
+#   → Linux : extra_hosts fournit la résolution (host-gateway = IP hôte Docker)
+#   → Mac/Windows Docker Desktop : résolu nativement, extra_hosts ignoré
+#
+# ── Variables d'environnement requises (.env) ──────────────────────────────────
+#   DB_PASSWORD, MINIO_SECRET_KEY, PGADMIN_PASSWORD  → obligatoires (:? dans compose)
+#   MINIO_ENDPOINT=http://host.docker.internal:9000   → pour la résolution DoclingService
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  rh-network:
+    driver: bridge
+
+services:
+
+  # ========== DATABASE ==========
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: rh-erp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-rh_erp_db}
+      POSTGRES_USER:     ${DB_USERNAME:-rh_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - rh-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-rh_admin} -d ${POSTGRES_DB:-rh_erp_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: rh-erp-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    ${PGADMIN_EMAIL:-admin@rh-erp.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD must be set in .env}
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - rh-network
+
+  # ========== OBJECT STORAGE ==========
+  # MinIO : stockage S3-compatible pour les CVs uploadés.
+  #
+  # Console web : http://localhost:9001
+  # API S3      : http://localhost:9000  (accès hôte)
+  #             : http://minio:9000      (accès inter-containers)
+  #
+  # IMPORTANT : configurer MINIO_ENDPOINT=http://host.docker.internal:9000
+  # dans le .env pour que les presigned URLs soient accessibles depuis docling-serve.
+  minio:
+    image: minio/minio:latest
+    container_name: rh-erp-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER:     ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set in .env}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./data/minio:/data
+    networks:
+      - rh-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== DOCUMENT PARSING ==========
+  # docling-serve : microservice IA de conversion de documents.
+  # Reçoit une URL présignée MinIO et retourne le contenu en Markdown structuré.
+  # Gère : PDF natifs, DOCX, tableaux, mise en page complexe, OCR si nécessaire.
+  #
+  # API REST : http://localhost:5001
+  # Endpoint : POST /v1/convert/source
+  # Health   : GET  /health
+  #
+  # extra_hosts :
+  #   Permet à docling-serve de résoudre "host.docker.internal" vers la machine hôte.
+  #   Nécessaire sur Linux pour que les presigned URLs MinIO (http://host.docker.internal:9000/...)
+  #   soient téléchargeables par docling-serve depuis le réseau Docker.
+  #   Sur Mac/Windows Docker Desktop, cette résolution est nativement supportée.
+  #
+  # GPU (optionnel, performances ×3–5) :
+  #   Décommenter le bloc "deploy" ci-dessous si une carte NVIDIA est disponible.
+  docling-serve:
+    image: ds4sd/docling-serve:latest
+    container_name: rh-erp-docling
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - rh-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s   # docling-serve charge ses modèles IA au démarrage (~30–60 s)
+    # ── GPU (optionnel) ──────────────────────────────────────────────────────
+    # Décommenter pour activer l'accélération NVIDIA (layout analysis + OCR ×3–5)
+    # Nécessite : nvidia-container-toolkit installé sur l'hôte
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]

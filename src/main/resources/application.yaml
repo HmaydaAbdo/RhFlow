@@ -54,6 +54,62 @@ management:
   endpoint:
     health:
       show-details: always
+  # Expose les indicateurs de santé des circuit breakers dans /actuator/health
+  health:
+    circuitbreakers:
+      enabled: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resilience4j — Circuit Breakers
+#
+# Stratégie :
+#   Retry (Spring Retry) est INTERNE → rapide, couvre les erreurs transitoires
+#   Circuit Breaker (Resilience4j) est EXTERNE → coupe après accumulation d'échecs
+#
+# AOP ordering : Spring Retry wraps CB (Retry est outer, CB est inner).
+# Conséquence : le CB compte chaque tentative individuelle.
+# Si le CB est ouvert → CallNotPermittedException → noRetryFor l'arrête immédiatement.
+#
+# Instances :
+#   docling    — conversion PDF/DOCX, appels potentiellement lents
+#   aiExtract  — extraction LLM coordonnées candidat
+#   aiEvaluate — évaluation LLM score / recommandation
+# ─────────────────────────────────────────────────────────────────────────────
+resilience4j:
+  circuitbreaker:
+    configs:
+      # ── Profil commun aux deux CB LLM ──────────────────────────────────────
+      ai-default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 60          # ouvre si 6/10 appels échouent
+        slow-call-duration-threshold: 20s   # appel considéré lent > 20 s
+        slow-call-rate-threshold: 80        # ouvre si 8/10 appels sont lents
+        wait-duration-in-open-state: 30s    # temps d'attente avant half-open
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+
+    instances:
+      # ── Docling : conversion documents, calls plus lents ───────────────────
+      docling:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        failure-rate-threshold: 50          # plus strict : service infra critique
+        slow-call-duration-threshold: 60s   # Docling peut prendre 30-60 s (OCR)
+        slow-call-rate-threshold: 80
+        wait-duration-in-open-state: 60s    # laisse le temps à docling-serve de redémarrer
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+
+      # ── LLM — extraction coordonnées candidat ─────────────────────────────
+      aiExtract:
+        base-config: ai-default
+
+      # ── LLM — évaluation CV / fiche de poste ─────────────────────────────
+      aiEvaluate:
+        base-config: ai-default
 
 logging:
   level:
@@ -174,4 +230,10 @@ app:
 
 
 springdoc:
-  api
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
+  packages-to-scan: com.hrflow

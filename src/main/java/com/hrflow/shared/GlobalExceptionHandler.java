@@ -80,4 +80,26 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DoclingConversionException.class)
     public ResponseEntity<ErrorResponse> handleDoclingConversion(DoclingConversionException ex) {
         log.error("[Docling] erreur conversion : {}", ex.getMessage(), ex);
-        return ResponseEntit
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse(503, "Service Unavailable",
+                        "Le service de conversion de documents est temporairement indisponible. Veuillez réessayer."));
+    }
+
+    @ExceptionHandler(MinioStorageException.class)
+    public ResponseEntity<ErrorResponse> handleMinioStorage(MinioStorageException ex) {
+        log.error("[MinIO] erreur infrastructure : {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse(503, "Service Unavailable",
+                        "Le service de stockage est temporairement indisponible. Veuillez réessayer."));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
+            log.error("Unhandled exception: {}", ex.getMessage(), ex);
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse(500, "Internal Server Error", "An unexpected error occurred"));
+    }
+}

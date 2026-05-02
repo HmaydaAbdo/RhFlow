@@ -272,4 +272,82 @@ public class CandidatureService {
         int count = 0;
         for (int i = 0; i < pdf.length - 15; i++) {
             if (pdf[i] != '/' || pdf[i+1] != 'T' || pdf[i+2] != 'y'
-     
+                    || pdf[i+3] != 'p' || pdf[i+4] != 'e') continue;
+            int j = i + 5;
+            while (j < pdf.length && isPdfWhitespace(pdf[j])) j++;
+            if (j + 5 >= pdf.length) continue;
+            if (pdf[j] != '/' || pdf[j+1] != 'P' || pdf[j+2] != 'a'
+                    || pdf[j+3] != 'g' || pdf[j+4] != 'e') continue;
+            if (j + 5 < pdf.length && pdf[j+5] == 's') continue;
+            count++;
+        }
+        return count;
+    }
+
+    private boolean isPdfWhitespace(byte b) {
+        return b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == '\f';
+    }
+
+    private int countDocxPages(InputStream inputStream) throws IOException {
+        try (ZipInputStream zip = new ZipInputStream(inputStream)) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                if ("docProps/app.xml".equals(entry.getName())) {
+                    String xml = new String(zip.readAllBytes(), StandardCharsets.UTF_8);
+                    Matcher m = Pattern.compile("<Pages>(\\d+)</Pages>").matcher(xml);
+                    if (m.find()) return Integer.parseInt(m.group(1));
+                    return 0;
+                }
+                zip.closeEntry();
+            }
+        }
+        return 0;
+    }
+
+    // ── Access control ──────────────────────────────────────────────────────────
+
+    private void enforceDirecteurOwnership(ProjetRecrutement projet) {
+        User currentUser = getAuthenticatedUser();
+        if (isDirecteurOnly(currentUser)) {
+            assertProjetBelongsToDirecteur(projet, currentUser);
+        }
+    }
+
+    private void assertProjetBelongsToDirecteur(ProjetRecrutement projet, User directeur) {
+        String directeurEmail = projet.getFicheDePoste().getDirection().getDirecteur().getEmail();
+        if (!directeur.getEmail().equals(directeurEmail)) {
+            throw new CandidatureNotFoundException(projet.getId());
+        }
+    }
+
+    private boolean isDirecteurOnly(User user) {
+        return hasRole(user, "DIRECTEUR") && !hasRole(user, "DRH") && !hasRole(user, "ADMIN");
+    }
+
+    private boolean hasRole(User user, String roleName) {
+        return user.getRoles().stream()
+                .anyMatch(r -> roleName.equalsIgnoreCase(r.getRoleName()));
+    }
+
+    private User getAuthenticatedUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
+            throw new IllegalStateException("Utilisateur non authentifié");
+        }
+        return userRepository.findWithRolesByEmail(auth.getName())
+                .orElseThrow(() -> new IllegalStateException("Utilisateur introuvable : " + auth.getName()));
+    }
+
+    // ── File utils ──────────────────────────────────────────────────────────────
+
+    private String safeExtension(String filename) {
+        if (filename == null || !filename.contains(".")) return "bin";
+        String ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
+        return ALLOWED_EXTENSIONS.contains(ext) ? ext : "bin";
+    }
+
+    private String currentUserEmail() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null ? auth.getName() : "unknown";
+    }
+}

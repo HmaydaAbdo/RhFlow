@@ -24,4 +24,17 @@ import java.time.Duration;
 @EnableConfigurationProperties(DoclingProperties.class)
 public class DoclingConfig {
 
- 
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
+
+    @Bean("doclingRestClient")
+    public RestClient doclingRestClient(DoclingProperties props) {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(Duration.ofSeconds(props.timeoutSeconds()));
+
+        return RestClient.builder()
+                .baseUrl(props.baseUrl())
+                .requestFactory(factory)
+                .build();
+    }
+}

@@ -13,4 +13,14 @@ import java.util.List;
  *                        Stocké en JSON TEXT dans la base après sérialisation par le pipeline.
  * @param pointsManquants Lacunes par rapport aux exigences du poste — 3 à 5 éléments.
  *                        Stocké en JSON TEXT dans la base après sérialisation par le pipeline.
- * @param recomma
+ * @param recommandation  Décision IA : "A_CONVOQUER", "A_ETUDIER" ou "NE_CORRESPOND_PAS".
+ *                        Validée et corrigée par le pipeline si incohérente avec le score.
+ * @param justificationIa Explication synthétique du score et de la décision (2–3 phrases).
+ */
+public record EvaluationCv(
+        int          scoreMatching,
+        List<String> pointsForts,
+        List<String> pointsManquants,
+        String       recommandation,
+        String       justificationIa
+) {}
