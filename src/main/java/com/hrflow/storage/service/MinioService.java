@@ -21,9 +21,7 @@ import java.util.concurrent.TimeUnit;
  * et les transformer en réponses HTTP adaptées.
  *
  * Contrats importants :
- *  - upload()    : lance MinioStorageException si MinIO est inaccessible ou refuse le fichier.
- *  - download()  : retourne un InputStream ouvert — l'appelant DOIT le fermer
- *                  (try-with-resources). Lance MinioStorageException si l'objet n'existe pas.
+ *  - upload()       : lance MinioStorageException si MinIO est inaccessible ou refuse le fichier.
  *  - presignedUrl() : retourne une URL GET valide {@value PRESIGN_EXPIRY_MINUTES} minutes.
  *  - delete()    : fail-soft — log warn sans throw pour ne pas faire échouer
  *                  la transaction DB si MinIO est temporairement indisponible.
@@ -115,32 +113,6 @@ public class MinioService {
         }
     }
 
-    // ── Download ─────────────────────────────────────────────────────────────────
-
-    /**
-     * Retourne un {@link InputStream} ouvert sur l'objet MinIO.
-     * <p>
-     * ⚠ L'appelant est responsable de fermer ce stream (try-with-resources).
-     * Le laisser ouvert provoque une fuite de connexion HTTP vers MinIO.
-     *
-     * @param objectPath chemin de l'objet dans le bucket
-     * @return stream ouvert sur le contenu du fichier
-     * @throws MinioStorageException si l'objet n'existe pas ou si MinIO est inaccessible
-     */
-    public InputStream download(String objectPath) {
-        try {
-            return client.getObject(
-                GetObjectArgs.builder()
-                    .bucket(props.getBucketName())
-                    .object(objectPath)
-                    .build()
-            );
-        } catch (Exception e) {
-            log.error("[MinIO] download échoué pour '{}' : {}", objectPath, e.getMessage());
-            throw new MinioStorageException("Impossible de télécharger le fichier depuis MinIO", e);
-        }
-    }
-
     // ── Presigned URL ────────────────────────────────────────────────────────────
 
     /**
@@ -209,3 +181,4 @@ public class MinioService {
         return (ct != null && !ct.isBlank()) ? ct : FALLBACK_CONTENT_TYPE;
     }
 }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               

@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -103,85 +105,18 @@ public class DoclingService {
      * Prérequis : docling-serve doit pouvoir résoudre l'URL (accès réseau à MinIO).
      * En Docker Compose / Kubernetes, utiliser le hostname interne pour app.minio.endpoint.
      *
+     * Retry : 3 tentatives, backoff exponentiel 2 s → 4 s.
+     * Couvre les erreurs transitoires (timeout réseau, restart docling-serve).
+     * Les {@link DoclingConversionException} (réponse vide, Markdown vide) ne sont PAS
+     * retriées — elles indiquent un problème structurel (PDF scanné, fichier corrompu).
+     *
      * @param documentUrl URL accessible par docling-serve (ex: URL présignée MinIO interne)
      * @param filename    Nom du fichier, utilisé pour les logs (ex: "cv_alami.pdf")
      * @return            Contenu Markdown structuré extrait du document
      * @throws DoclingConversionException si docling-serve est indisponible, si la réponse
      *                                    est vide, ou si l'URL n'est pas joignable par docling
      */
-    public String toMarkdown(String documentUrl, String filename) {
-        ConvertRequest request = buildRequest(documentUrl);
-
-        log.debug("[Docling] POST {} — fichier='{}', url='{}'", CONVERT_PATH, filename, documentUrl);
-
-        try {
-            ConvertResponse response = restClient.post()
-                    .uri(CONVERT_PATH)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(request)
-                    .retrieve()
-                    .body(ConvertResponse.class);
-
-            return extractMarkdown(response, filename);
-
-        } catch (RestClientException e) {
-            log.error("[Docling] échec conversion '{}' : {}", filename, e.getMessage());
-            throw new DoclingConversionException(
-                    "docling-serve inaccessible ou conversion échouée pour '%s'".formatted(filename), e);
-        }
-    }
-
-    // ── Private helpers ───────────────────────────────────────────────────────
-
-    private ConvertRequest buildRequest(String documentUrl) {
-        var source  = new DocumentSource(KIND_HTTP, documentUrl);
-        var options = new ConvertOptions(List.of("md"));
-        return new ConvertRequest(List.of(source), options);
-    }
-
-    private String extractMarkdown(ConvertResponse response, String filename) {
-        if (response == null || response.document() == null) {
-            throw new DoclingConversionException(
-                    "Réponse docling-serve vide pour '%s'".formatted(filename));
-        }
-        String md = response.document().mdContent();
-        if (md == null || md.isBlank()) {
-            throw new DoclingConversionException(
-                    "Markdown vide retourné par docling-serve pour '%s'".formatted(filename));
-        }
-        log.info("[Docling] '{}' converti — {} caractères Markdown", filename, md.length());
-        return md;
-    }
-
-    // ── Request / Response DTOs (internes à ce service) ──────────────────────
-
-    /**
-     * Source unifiée — format docling-serve API v1.9+.
-     * Le champ {@code kind} est le discriminateur : "http" pour une URL distante.
-     */
-    record DocumentSource(
-            @JsonProperty("kind") String kind,
-            @JsonProperty("url")  String url
-    ) {}
-
-    record ConvertOptions(
-            @JsonProperty("to_formats") List<String> toFormats
-    ) {}
-
-    /**
-     * Corps de la requête POST /v1/convert/source.
-     * Format unifié v1.9+ : "sources" remplace les anciens "file_sources" / "http_sources".
-     */
-    record ConvertRequest(
-            @JsonProperty("sources") List<DocumentSource> sources,
-            @JsonProperty("options") ConvertOptions       options
-    ) {}
-
-    record DocumentContent(
-            @JsonProperty("md_content") String mdContent
-    ) {}
-
-    record ConvertResponse(
-            @JsonProperty("document") DocumentContent document
-    ) {}
-}
+    @Retryable(
+        retryFor   = RestClientException.class,
+        maxAttempts = 3,
+        backoff    = @Backoff(delay = 2000, multiplie

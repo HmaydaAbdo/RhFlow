@@ -49,18 +49,4 @@ public interface CvEvaluator {
     3. Le champ recommandation doit être EXACTEMENT l'un de : A_CONVOQUER, A_ETUDIER, NE_CORRESPOND_PAS
     4. Le score doit être cohérent avec la recommandation (voir barème ci-dessus).
     5. Répondre en français.
-    """)
-    EvaluationCv evaluer(
-            @UserMessage("""
-            Évalue la correspondance entre ce CV et cette fiche de poste.
-
-            FICHE DE POSTE :
-            {{ficheDePoste}}
-
-            CV DU CANDIDAT (Markdown) :
-            {{cvMarkdown}}
-            """)
-            @V("ficheDePoste") String ficheDePoste,
-            @V("cvMarkdown")   String cvMarkdown
-    );
-}
+    

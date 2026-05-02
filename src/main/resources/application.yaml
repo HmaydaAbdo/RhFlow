@@ -46,6 +46,15 @@ spring:
 #       → set them in your .env / Docker environment / shell profile.
 # ─────────────────────────────────────────────────────────────────────────────
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus
+  endpoint:
+    health:
+      show-details: always
+
 logging:
   level:
     root: INFO
@@ -161,14 +170,8 @@ app:
   # ─────────────────────────────────────────────────────────────────────────────
   docling:
     base-url: ${DOCLING_URL:http://localhost:5001}
-    timeout-seconds: 60
+    timeout-seconds: 120
 
 
 springdoc:
-  api-docs:
-    path: /v3/api-docs
-  swagger-ui:
-    path: /swagger-ui.html
-    operations-sorter: alpha
-    tags-sorter: alpha
-  packages-to-scan: com.hrflow
+  api

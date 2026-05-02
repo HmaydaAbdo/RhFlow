@@ -1,45 +1,22 @@
 version: '3.9'
 
-services:
-  postgres:
-    image: pgvector/pgvector:pg17
-    container_name: rh-erp-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-rh_erp_db}
-      POSTGRES_USER: ${DB_USERNAME:-rh_admin}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: rh-erp-admin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@rh-erp.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?PGADMIN_PASSWORD must be set in .env}
-    ports:
-      - "80:80"
-    depends_on:
-      - postgres
-
-  # ========== OBJECT STORAGE ==========
-  # MinIO: S3-compatible object store for CV PDF files.
-  # Console: http://localhost:9001  (login: minioadmin / minioadmin)
-  # API:     http://localhost:9000  (used by MinioClient in app)
-  minio:
-    image: minio/minio:latest
-    container_name: rh-erp-minio
-    restart: unless-stopped
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY must be set in .env}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    command: server /data --console-address ":9001"
-    volumes:
-      - ./data/minio:/data
+# ─────────────────────────────────────────────────────────────────────────────
+# RH Flow — Infrastructure locale de développement
+#
+# Services inclus :
+#   postgres      — Base de données principale (pgvector)
+#   pgadmin       — Interface d'administration PostgreSQL
+#   minio         — Stockage objet S3-compatible pour les CVs
+#   docling-serve — Microservice de parsing documents (PDF/DOCX → Markdown)
+#
+# ── Démarrage ─────────────────────────────────────────────────────────────────
+#   cp .env.example .env        # Remplir les variables requises
+#   docker compose up -d        # Démarrer l'infrastructure
+#   ./mvnw spring-boot:run      # Démarrer Spring Boot en local
+#
+# ── Réseau & presigned URLs MinIO ─────────────────────────────────────────────
+#   Spring Boot tourne en local (hôte) et génère des presigned URLs MinIO.
+#   docling-serve tourne dans Docker et doit pouvoir les consommer.
+#
+#   Solution : MINIO_ENDPOINT=http://host.docker.internal:9000 dans le .env
+#   →
