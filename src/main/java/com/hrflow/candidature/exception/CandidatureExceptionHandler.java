@@ -21,5 +21,15 @@ public class CandidatureExceptionHandler {
         return new ErrorResponse(HttpStatus.CONFLICT.value(), "Conflict", ex.getMessage());
     }
 
-
+    /**
+     * Couvre :
+     *  - statut invalide dans changerStatut() ("Seuls RETENU et REJETE…")
+     *  - re-évaluation déjà en cours dans reevaluer()
+     *  - dépassement de pages dans validatePageCount()
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleBadRequest(IllegalArgumentException ex) {
+        return new ErrorResponse(HttpStatus.BAD_REQUEST.value(), "Bad Request", ex.getMessage());
+    }
 }

@@ -88,6 +88,19 @@ public class CandidatureService {
      * TransactionTemplate contourne le proxy AOP : la frontière de transaction est
      * définie programmatiquement, pas par annotation sur une méthode appelée via this.
      */
+    /**
+     * Upload d'un CV pour un projet de recrutement.
+     *
+     * Ordre d'exécution intentionnel :
+     *   1. TX (courte) : valider projet + créer Candidature RECU → commit → connexion libérée
+     *   2. MinIO upload (hors TX) — si échec : suppression compensatoire en base
+     *   3. pipeline.traiter() déclenché APRÈS l'upload MinIO réussi
+     *
+     * Pourquoi le pipeline est déclenché après MinIO (et non via afterCommit) :
+     *   afterCommit() se déclenche quand la TX commit, AVANT que minioService.upload() soit appelé.
+     *   Le pipeline génèrerait une presigned URL d'un objet inexistant → Docling échouerait.
+     *   En déclenchant pipeline.traiter() après upload, l'objet est toujours présent.
+     */
     public CandidatureResponse upload(Long projetId, MultipartFile file) {
 
         validatePageCount(file);
@@ -95,8 +108,7 @@ public class CandidatureService {
         String ext        = safeExtension(file.getOriginalFilename());
         String objectPath = "projets/" + projetId + "/cvs/" + UUID.randomUUID() + "." + ext;
 
-        // TX 1 : périmètre explicite via TransactionTemplate.
-        // La connexion DB est libérée dès la sortie du lambda (après commit).
+        // TX 1 : persistance candidature — connexion libérée à la sortie du lambda
         Candidature saved = txWrite.execute(status -> {
 
             var projet = projetRepo.findWithDetailsById(projetId)
@@ -119,23 +131,26 @@ public class CandidatureService {
             candidature.setStatut(StatutCandidature.RECU);
 
             Candidature c = candidatureRepo.save(candidature);
-            // Flush dans la TX pour détecter tout conflit de contrainte DB avant l'upload MinIO
+            // Flush dans la TX : détecte tout conflit de contrainte DB avant l'upload MinIO
             candidatureRepo.flush();
-
-            // afterCommit enregistré ICI (pendant la TX active) → se déclenche après commit
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    pipeline.traiter(c.getId());
-                }
-            });
-
             return c;
+            // Pas d'afterCommit ici — le pipeline est déclenché APRÈS l'upload MinIO
         });
 
-        // TX commitée, connexion libérée — upload MinIO sans connexion DB tenue
-        minioService.upload(objectPath, file);
-        log.info("[Candidature] CV uploadé → {} (projet={})", objectPath, projetId);
+        // TX commitée, connexion libérée — upload MinIO
+        try {
+            minioService.upload(objectPath, file);
+            log.info("[Candidature] CV uploadé → {} (projet={})", objectPath, projetId);
+        } catch (RuntimeException e) {
+            // MinIO a échoué — supprimer la candidature orpheline en base (rollback compensatoire)
+            log.error("[Candidature] upload MinIO échoué pour candidature={} — rollback DB : {}",
+                    saved.getId(), e.getMessage());
+            txWrite.execute(status -> { candidatureRepo.deleteById(saved.getId()); return null; });
+            throw e;
+        }
+
+        // Pipeline déclenché uniquement si MinIO a réussi — @Async, retourne immédiatement
+        pipeline.traiter(saved.getId());
 
         return mapper.toResponse(saved);
     }
@@ -190,11 +205,17 @@ public class CandidatureService {
     @Transactional
     public CandidatureResponse reevaluer(Long id) {
         var c = findWithProjet(id);
+
+        // Guard : on refuse si une évaluation est déjà en cours
         if (c.getStatut() == StatutCandidature.EN_COURS) {
             throw new IllegalArgumentException(
                     "La candidature %d est déjà en cours d'évaluation.".formatted(id));
         }
-        c.setStatut(StatutCandidature.EN_COURS);
+
+        // Reset vers RECU — obligatoire : la garde d'idempotence du pipeline
+        // (CvPipelineService.traiter) n'autorise l'entrée que depuis RECU.
+        // Le pipeline lui-même passera le statut EN_COURS dans sa TX1 atomique.
+        c.setStatut(StatutCandidature.RECU);
         c.setScoreMatching(null);
         c.setPointsForts(null);
         c.setPointsManquants(null);
