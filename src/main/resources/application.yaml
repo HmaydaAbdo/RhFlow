@@ -219,15 +219,20 @@ app:
     secret-key: ${MINIO_SECRET_KEY}
     bucket-name: ${MINIO_BUCKET}
 
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Docling-serve : microservice de parsing de documents (PDF / DOCX → Markdown)
-  # Lancer localement : docker run -p 5001:5001 ds4sd/docling-serve:latest
-  # En prod : DOCLING_URL=http://docling-serve:5001
-  # ─────────────────────────────────────────────────────────────────────────────
+  # (section app.docling supprimée — config migrée vers arconia.docling ci-dessous)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Arconia Docling — Java SDK auto-configuré (DoclingServeApi)
+# Polling async géré en interne ; read-timeout couvre la durée totale de conversion.
+# Doc : https://docs.arconia.io/arconia/latest/integrations/docling/
+# En prod : DOCLING_URL=http://docling-serve:5001
+# ─────────────────────────────────────────────────────────────────────────────
+arconia:
   docling:
     base-url: ${DOCLING_URL:http://localhost:5001}
-    timeout-seconds: 120
-
+    read-timeout: 120s    # conversion DOCX/PDF peut prendre 30-90 s selon charge
+    connect-timeout: 5s
 
 springdoc:
   api-docs:

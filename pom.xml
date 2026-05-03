@@ -33,12 +33,19 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Arconia BOM — gère les versions de arconia-docling-spring-boot-starter -->
+            <dependency>
+                <groupId>io.arconia</groupId>
+                <artifactId>arconia-bom</artifactId>
+                <version>0.20.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
 	<dependencies>
         <!-- ========== .env loading at startup ========== -->
-
         <dependency>
             <groupId>me.paulschwarz</groupId>
             <artifactId>spring-dotenv</artifactId>
@@ -134,26 +141,31 @@
             <version>${resilience4j.version}</version>
         </dependency>
 
-        <!-- ========== LangChain4j (Exemple: OpenAI Spring Boot Starter) ========== -->
+        <!-- ========== LangChain4j ========== -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
         </dependency>
-        <!-- langchain4j core utiliser l'API de services AI de haut niveau-->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
         </dependency>
-
-        <!-- ========== LangChain4j Observation (pour la télémétrie) ========== -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-observation</artifactId>
         </dependency>
-
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- ========== ARCONIA DOCLING — SDK officiel Java pour docling-serve ========== -->
+        <!-- Auto-configure DoclingServeApi ; polling async géré en interne par le SDK. -->
+        <!-- Doc : https://docs.arconia.io/arconia/latest/integrations/docling/          -->
+        <!-- Version gérée par arconia-bom 0.20.0 dans dependencyManagement.            -->
+        <dependency>
+            <groupId>io.arconia</groupId>
+            <artifactId>arconia-docling-spring-boot-starter</artifactId>
         </dependency>
 
 	</dependencies>
