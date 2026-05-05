@@ -43,6 +43,6 @@ public record AiProviderProperties(
         if (baseUrl   == null)   throw new IllegalArgumentException("AI provider 'baseUrl' is required");
         if (apiKey    == null)   apiKey      = "none";
         if (model     == null)   throw new IllegalArgumentException("AI provider 'model' is required");
-        if (temperature <= 0.0)  temperature = 0.75;
+        if (temperature < 0.0)   temperature = 0.0;  // 0.0 est valide (déterministe) — ne pas écraser
     }
 }

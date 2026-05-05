@@ -118,7 +118,13 @@ public class MinioService {
     /**
      * Génère une URL GET présignée valide {@value PRESIGN_EXPIRY_MINUTES} minutes.
      * Le frontend peut télécharger le CV directement depuis MinIO sans repasser
-     * par le backend Java.
+     * par le backend Java, et docling-serve peut consommer l'URL côté Docker.
+     *
+     * <p>L'URL contient le hostname de {@code app.minio.endpoint} et la signature
+     * AWS V4 — host inclus dans les headers signés. Aucune réécriture n'est faite ;
+     * les consommateurs (docling, browser) doivent pouvoir résoudre ce hostname
+     * pour que la signature reste valide. Voir {@code MinioConfig} pour le DNS
+     * override appliqué uniquement à la couche TCP du SDK.
      *
      * @param objectPath chemin de l'objet dans le bucket
      * @return URL présignée

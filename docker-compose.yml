@@ -1,4 +1,3 @@
-version: '3.9'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RH Flow — Infrastructure locale de développement
@@ -18,15 +17,22 @@ version: '3.9'
 #   Spring Boot tourne en local (hôte) et génère des presigned URLs MinIO.
 #   docling-serve tourne dans Docker et doit pouvoir les consommer.
 #
-#   Solution : MINIO_ENDPOINT=http://host.docker.internal:9000 dans le .env
-#   → les URLs présignées utilisent host.docker.internal comme hostname
-#   → docling-serve résout ce hostname vers la machine hôte via extra_hosts
-#   → Linux : extra_hosts fournit la résolution (host-gateway = IP hôte Docker)
-#   → Mac/Windows Docker Desktop : résolu nativement, extra_hosts ignoré
+#   Solution : un seul MINIO_ENDPOINT canonique (cf. .env / .env.example) +
+#   DNS override côté SDK pour Spring Boot :
+#     - MINIO_ENDPOINT = http://host.docker.internal:9000
+#         → hostname signé + injecté dans les presigned URLs
+#         → docling le résout via extra_hosts ci-dessous (host-gateway)
+#     - MINIO_SDK_HOST_OVERRIDE = host.docker.internal=127.0.0.1
+#         → côté Spring Boot, le SDK MinIO ouvre les TCP vers 127.0.0.1
+#         → la signature reste valide (le hostname signé n'est pas modifié)
+#
+#   docling-serve résout host.docker.internal grâce à extra_hosts ci-dessous :
+#     - Linux : host-gateway = IP de la passerelle Docker
+#     - Mac/Windows Docker Desktop : résolu nativement, extra_hosts ignoré
 #
 # ── Variables d'environnement requises (.env) ──────────────────────────────────
 #   DB_PASSWORD, MINIO_SECRET_KEY, PGADMIN_PASSWORD  → obligatoires (:? dans compose)
-#   MINIO_ENDPOINT=http://host.docker.internal:9000   → pour la résolution DoclingService
+#   MINIO_ENDPOINT, MINIO_SDK_HOST_OVERRIDE          → requis par Spring Boot
 # ─────────────────────────────────────────────────────────────────────────────
 
 networks:
@@ -78,8 +84,10 @@ services:
   # API S3      : http://localhost:9000  (accès hôte)
   #             : http://minio:9000      (accès inter-containers)
   #
-  # IMPORTANT : configurer MINIO_ENDPOINT=http://host.docker.internal:9000
-  # dans le .env pour que les presigned URLs soient accessibles depuis docling-serve.
+  # IMPORTANT — Configuration .env :
+  #   MINIO_ENDPOINT=http://host.docker.internal:9000              (canonique)
+  #   MINIO_SDK_HOST_OVERRIDE=host.docker.internal=127.0.0.1       (DNS SDK only)
+  # Voir .env.example pour la rationale (signature SigV4 + DNS override).
   minio:
     image: minio/minio:latest
     container_name: rh-erp-minio
@@ -107,19 +115,29 @@ services:
   # Gère : PDF natifs, DOCX, tableaux, mise en page complexe, OCR si nécessaire.
   #
   # API REST : http://localhost:5001
-  # Endpoint : POST /v1/convert/source
+  # Endpoint : POST /v1/convert/source       (synchrone — bloque jusqu'au résultat)
   # Health   : GET  /health
+  #
+  # ⚠ VERSION PINNÉE — NE PAS BASCULER SUR :latest
+  #   Le SDK docling-java 0.3.0 (embarqué par Arconia 0.20.0) appelle l'endpoint
+  #   synchrone `/v1/convert/source`. À partir de docling-serve v1.16.0, l'API
+  #   client a été restructurée et l'endpoint sync n'est plus garanti.
+  #   v1.9.0 est la version testée et qualifiée par Arconia 0.20.0
+  #   (cf. arconia.dev.services.docling.image-name dans Arconia source).
   #
   # extra_hosts :
   #   Permet à docling-serve de résoudre "host.docker.internal" vers la machine hôte.
-  #   Nécessaire sur Linux pour que les presigned URLs MinIO (http://host.docker.internal:9000/...)
-  #   soient téléchargeables par docling-serve depuis le réseau Docker.
-  #   Sur Mac/Windows Docker Desktop, cette résolution est nativement supportée.
+  #   Nécessaire pour que les presigned URLs MinIO (http://host.docker.internal:9000/...)
+  #   générées par Spring Boot (qui tourne hors Docker) soient téléchargeables par
+  #   docling-serve depuis le réseau Docker.
+  #   Linux : extra_hosts fournit la résolution (host-gateway = IP hôte Docker).
+  #   Mac/Windows Docker Desktop : résolu nativement.
   #
   # GPU (optionnel, performances ×3–5) :
   #   Décommenter le bloc "deploy" ci-dessous si une carte NVIDIA est disponible.
+  #   Pour le GPU, basculer sur l'image `docling-serve` (sans suffixe -cpu).
   docling-serve:
-    image: ds4sd/docling-serve:latest
+    image: ghcr.io/docling-project/docling-serve-cpu:v1.9.0
     container_name: rh-erp-docling
     restart: unless-stopped
     ports:
@@ -133,14 +151,5 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s   # docling-serve charge ses modèles IA au démarrage (~30–60 s)
-    # ── GPU (optionnel) ──────────────────────────────────────────────────────
-    # Décommenter pour activer l'accélération NVIDIA (layout analysis + OCR ×3–5)
-    # Nécessite : nvidia-container-toolkit installé sur l'hôte
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      start_period: 90s   # docling-serve charge ses modèles IA au démarrage (~60–90 s)
+

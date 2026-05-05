@@ -134,7 +134,7 @@ app:
         api-key: ${GROQ_API_KEY}
         model: llama-3.3-70b-versatile
         timeout-seconds: 20
-        temperature: 0.75
+        temperature: 0
         enabled: true
 
       # Tier 2: Best quality + huge context for CV/JD parsing
@@ -143,8 +143,9 @@ app:
         api-key: ${GOOGLE_AI_KEY}
         model: gemini-2.5-flash
         timeout-seconds: 25
-        temperature: 0.75
+        temperature: 0
         enabled: true
+
 
       # Tier 3: High‑throughput batch jobs (import many CVs/JDs)
       - name: cerebras
@@ -152,8 +153,9 @@ app:
         api-key: ${CEREBRAS_API_KEY}
         model: llama-3.3-70b
         timeout-seconds: 20
-        temperature: 0.75
+        temperature: 0
         enabled: true
+
 
       # Tier 4: Extra batch / dev‑experimentation (Mistral + OpenRouter)
       - name: mistral
@@ -161,16 +163,18 @@ app:
         api-key: ${MISTRAL_API_KEY}
         model: mistral-small-latest
         timeout-seconds: 30
-        temperature: 0.75
+        temperature: 0
         enabled: true
+
 
       - name: openrouter
         base-url: https://openrouter.ai/api/v1
         api-key: ${OPEN_ROUTER_API_KEY}
         model: openai/gpt-oss-120b:free
         timeout-seconds: 30
-        temperature: 0.75
+        temperature: 0
         enabled: true
+
 
       # Tier 5: Optional fallbacks (Fireworks, HF) — lower priority
       - name: huggingface
@@ -178,8 +182,9 @@ app:
         api-key: ${HF_API_KEY}
         model: openai/gpt-oss-120b:fastest
         timeout-seconds: 45
-        temperature: 0.75
+        temperature: 0
         enabled: true
+
 
       # Tier 6: Always‑on, offline, private fallback
       - name: ollama
@@ -187,8 +192,9 @@ app:
         api-key: ollama
         model: qwen2.5:7b-instruct-q4_K_M
         timeout-seconds: 180
-        temperature: 0.75
+        temperature: 0
         enabled: true
+
 
   # ─────────────────────────────────────────────────────────────────────────────
   # JWT : le secret DOIT être fourni via la variable d'environnement APP_JWT_SECRET.
@@ -213,20 +219,48 @@ app:
       url: http://staport.dyndns.org/walidbentaleb/get_my_chantiers_by_npemploy/0
       cron: "0 0 6 * * *"
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # MinIO — endpoint canonique unique (hostname signé == hostname dans l'URL).
+  #
+  # AWS Signature V4 inclut le header Host dans les headers signés des presigned
+  # URLs. On NE PEUT PAS réécrire le hostname après signature sans casser la sig.
+  # Donc : un seul endpoint, partagé par le SDK et par les URLs retournées.
+  #
+  #   endpoint            : hostname canonique pour signer + injecter dans les URLs.
+  #                         Dev local : http://host.docker.internal:9000
+  #                         Prod      : http://minio:9000
+  #
+  #   sdk-host-override   : (optionnel, dev) format "hostname=ip"
+  #                         Mappe UN hostname vers UNE IP au niveau DNS du SDK MinIO
+  #                         uniquement (couche TCP). N'affecte PAS la signature.
+  #                         Cas typique : Spring Boot sur l'hôte ne peut pas joindre
+  #                         host.docker.internal (firewall / IP LAN non routable),
+  #                         on route les sockets SDK vers 127.0.0.1.
+  #                         Dev local : host.docker.internal=127.0.0.1
+  #                         Prod      : laisser vide
+  # ─────────────────────────────────────────────────────────────────────────
   minio:
-    endpoint: ${MINIO_ENDPOINT}
-    access-key: ${MINIO_ACCESS_KEY}
-    secret-key: ${MINIO_SECRET_KEY}
-    bucket-name: ${MINIO_BUCKET}
+    endpoint:          ${MINIO_ENDPOINT}
+    access-key:        ${MINIO_ACCESS_KEY}
+    secret-key:        ${MINIO_SECRET_KEY}
+    bucket-name:       ${MINIO_BUCKET}
+    sdk-host-override: ${MINIO_SDK_HOST_OVERRIDE:}
 
   # (section app.docling supprimée — config migrée vers arconia.docling ci-dessous)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Arconia Docling — Java SDK auto-configuré (DoclingServeApi)
-# Polling async géré en interne ; read-timeout couvre la durée totale de conversion.
-# Doc : https://docs.arconia.io/arconia/latest/integrations/docling/
+# Arconia Docling — Java SDK auto-configuré (DoclingServeApi / DoclingServeClient)
+#
+# Le SDK appelle l'endpoint SYNCHRONE POST /v1/convert/source de docling-serve :
+# read-timeout doit couvrir la durée TOTALE d'une conversion (jusqu'à ~90 s pour
+# un PDF lourd avec OCR sans GPU).
+#
+# Image qualifiée : ghcr.io/docling-project/docling-serve-cpu:v1.9.0
+# (ne PAS utiliser :latest — l'API client a changé à partir de v1.16.x)
+#
 # En prod : DOCLING_URL=http://docling-serve:5001
+# Doc : https://docs.arconia.io/arconia/latest/integrations/docling/
 # ─────────────────────────────────────────────────────────────────────────────
 arconia:
   docling:

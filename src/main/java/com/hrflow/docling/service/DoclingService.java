@@ -22,14 +22,23 @@ import java.net.URISyntaxException;
  * ── Architecture ────────────────────────────────────────────────────────────
  *
  * Ce service délègue à {@link DoclingServeApi} auto-configuré par Arconia.
- * Le SDK gère en interne le protocole async de docling-serve (soumission → polling → résultat).
+ * Le SDK appelle l'endpoint <b>synchrone</b> {@code POST /v1/convert/source} de
+ * docling-serve : la requête bloque jusqu'à la fin de la conversion. La durée
+ * totale est bornée par {@code arconia.docling.read-timeout} (120 s actuellement).
  *
  *   Spring Boot ──[URL présignée]──▶ DoclingServeApi ──▶ docling-serve ──▶ MinIO
+ *
+ * ── Compatibilité de version ────────────────────────────────────────────────
+ *
+ * Le couple SDK 0.3.0 / Arconia 0.20.0 est qualifié contre l'image
+ * {@code ghcr.io/docling-project/docling-serve-cpu:v1.9.0} (cf. docker-compose).
+ * À partir de docling-serve v1.16.x, l'API a été restructurée et l'endpoint sync
+ * n'est plus garanti — ne PAS basculer l'image en {@code :latest}.
  *
  * ── Résilience ──────────────────────────────────────────────────────────────
  *
  *  — @CircuitBreaker "docling" : ouvre après 50 % d'échecs sur 10 appels.
- *  — @Retryable × 3 sur erreurs transitoires.
+ *  — @Retryable × 3 sur erreurs transitoires (réseau, 5xx).
  *    - noRetryFor DoclingConversionException : échec structurel (doc illisible, markdown vide)
  *    - noRetryFor CallNotPermittedException  : CB ouvert, inutile de retenter
  *
@@ -86,7 +95,8 @@ public class DoclingService {
                     .source(HttpSource.builder().url(uri).build())
                     .build();
 
-            // SDK gère l'async interne : submit → poll → result — un seul appel bloquant.
+            // Endpoint sync : POST /v1/convert/source — bloque jusqu'à la fin
+            // (timeout total piloté par arconia.docling.read-timeout).
             ConvertDocumentResponse response = doclingClient.convertSource(request);
 
             return extractMarkdown(response, filename);

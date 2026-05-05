@@ -54,8 +54,8 @@ public class AiConfig {
                 .modelName(p.model())
                 .timeout(Duration.ofSeconds(p.timeoutSeconds()))
                 .temperature(p.temperature())   // lu depuis la config, plus de valeur codée en dur
-                .logRequests(false)
-                .logResponses(false)
+                .logRequests(true)
+                .logResponses(true)
                 .build();
     }
 

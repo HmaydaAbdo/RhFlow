@@ -50,16 +50,19 @@ public interface CvEvaluator {
     4. Le score doit être cohérent avec la recommandation (voir barème ci-dessus).
     5. Répondre en français.
     """)
+    // @UserMessage DOIT être sur la méthode quand il y a plusieurs @V params.
+    // Sur un paramètre, LangChain4j utilise la valeur du param directement (template ignoré)
+    // → cvMarkdown était silencieusement dropé : le LLM évaluait sans voir le CV.
+    @UserMessage("""
+    Évalue la correspondance entre ce CV et cette fiche de poste.
+
+    FICHE DE POSTE :
+    {{ficheDePoste}}
+
+    CV DU CANDIDAT (Markdown) :
+    {{cvMarkdown}}
+    """)
     EvaluationCv evaluer(
-            @UserMessage("""
-            Évalue la correspondance entre ce CV et cette fiche de poste.
-
-            FICHE DE POSTE :
-            {{ficheDePoste}}
-
-            CV DU CANDIDAT (Markdown) :
-            {{cvMarkdown}}
-            """)
             @V("ficheDePoste") String ficheDePoste,
             @V("cvMarkdown")   String cvMarkdown
     );

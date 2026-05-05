@@ -29,13 +29,16 @@ public interface CvDataExtractor {
     5. Pour le téléphone : conserver le format original du CV (avec indicatif si présent).
     6. Pour le nom : prénom + nom complet, tel qu'écrit dans le CV.
     """)
-    CandidatInfo extraire(
-            @UserMessage("""
-            Extrait les coordonnées du candidat depuis le CV suivant.
+    // @UserMessage sur la méthode — cohérence avec CvEvaluator.
+    // Avec un seul param le bug était masqué (la valeur brute était envoyée),
+    // mais le template "CV (Markdown) :\n{{cvMarkdown}}" était ignoré.
+    @UserMessage("""
+    Extrait les coordonnées du candidat depuis le CV suivant.
 
-            CV (Markdown) :
-            {{cvMarkdown}}
-            """)
+    CV (Markdown) :
+    {{cvMarkdown}}
+    """)
+    CandidatInfo extraire(
             @V("cvMarkdown") String cvMarkdown
     );
 }
