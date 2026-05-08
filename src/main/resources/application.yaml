@@ -121,7 +121,7 @@ app:
   ai:
     company:
       nom: STAPORT SA
-      secteur: BTP (Bâtiment et Travaux Publics)
+      secteur: BTP
       ville: MARRAKECH, Maroc
       annee-fondation: 1999
       email-recrutement: recrutement@staport-sa.ma
