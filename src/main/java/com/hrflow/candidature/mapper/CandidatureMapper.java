@@ -38,6 +38,7 @@ public class CandidatureMapper {
                 parseJsonList(c.getPointsManquants()),
                 c.getRecommandation(),
                 c.getJustificationIa(),
+                parseJsonList(c.getQuestionsEntretien()),
                 c.getStatut(),
                 c.getDeposeLe(),
                 c.getEvalueLe()
