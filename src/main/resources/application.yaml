@@ -122,7 +122,7 @@ app:
     company:
       nom: STAPORT SA
       secteur: BTP (Bâtiment et Travaux Publics)
-      ville: Aïn Sebaâ, Casablanca, Maroc
+      ville: MARRAKECH, Maroc
       annee-fondation: 1999
       email-recrutement: recrutement@staport-sa.ma
 
@@ -244,6 +244,7 @@ app:
     access-key:        ${MINIO_ACCESS_KEY}
     secret-key:        ${MINIO_SECRET_KEY}
     bucket-name:       ${MINIO_BUCKET}
+    public-endpoint:    ${MINIO_PUBLIC_ENDPOINT:}
     sdk-host-override: ${MINIO_SDK_HOST_OVERRIDE:}
 
   # (section app.docling supprimée — config migrée vers arconia.docling ci-dessous)
