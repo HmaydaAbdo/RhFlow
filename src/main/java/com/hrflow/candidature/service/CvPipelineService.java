@@ -1,16 +1,17 @@
 package com.hrflow.candidature.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hrflow.ai.config.AiFallbackProperties;
 import com.hrflow.ai.dto.CandidatInfo;
 import com.hrflow.ai.dto.EvaluationCv;
 import com.hrflow.ai.service.AiGateway;
+import com.hrflow.ai.utils.JobDescriptionContext;
 import com.hrflow.candidature.model.Candidature;
 import com.hrflow.candidature.model.RecommandationIA;
 import com.hrflow.candidature.model.StatutCandidature;
 
 import com.hrflow.candidature.repository.CandidatureRepository;
 import com.hrflow.docling.service.DoclingService;
-import com.hrflow.fichedeposte.model.FicheDePoste;
 import com.hrflow.storage.service.MinioService;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -41,10 +42,15 @@ import java.util.List;
  *   que docling-serve consomme directement. Spring Boot n'est qu'un orchestrateur.
  *   Prérequis : docling-serve doit pouvoir joindre MinIO (hostname interne).
  *
+ * Contexte fiche de poste enrichi :
+ *   JobDescriptionContext.from() fournit le contexte complet : entreprise, fiche de poste
+ *   (avec direction), besoin de recrutement et objet candidature. Ce contexte enrichi
+ *   améliore la précision de l'évaluation IA par rapport à un texte minimaliste.
+ *
  * Gardes de production :
  *   — Idempotence : seul statut RECU autorise l'entrée (pas de double-processing)
  *   — Markdown vide : fail-fast si Docling ne peut pas extraire de texte (PDF scanné)
- *   — Cohérence score ↔ recommandation : override si le LLM est incohérent
+ *   — parseRecommandation() : valide la valeur retournée par le LLM contre l'enum
  *   — markErreur() : la candidature ne reste jamais bloquée en EN_COURS
  *
  * Résilience :
@@ -76,13 +82,14 @@ public class CvPipelineService {
     private static final String TAG_STEP         = "step";
     private static final String TAG_RESULT       = "result";
 
-    private final CandidatureRepository candidatureRepo;
-    private final MinioService          minioService;
-    private final DoclingService        doclingService;
-    private final AiGateway             aiGateway;
-    private final ObjectMapper          objectMapper;
-    private final MeterRegistry         meterRegistry;
-    private final TransactionTemplate   txWrite;
+    private final CandidatureRepository    candidatureRepo;
+    private final MinioService             minioService;
+    private final DoclingService           doclingService;
+    private final AiGateway               aiGateway;
+    private final ObjectMapper             objectMapper;
+    private final MeterRegistry            meterRegistry;
+    private final TransactionTemplate      txWrite;
+    private final AiFallbackProperties     aiProps;
 
     public CvPipelineService(CandidatureRepository      candidatureRepo,
                              MinioService               minioService,
@@ -90,7 +97,8 @@ public class CvPipelineService {
                              AiGateway                  aiGateway,
                              ObjectMapper               objectMapper,
                              MeterRegistry              meterRegistry,
-                             PlatformTransactionManager txManager) {
+                             PlatformTransactionManager txManager,
+                             AiFallbackProperties       aiProps) {
         this.candidatureRepo = candidatureRepo;
         this.minioService    = minioService;
         this.doclingService  = doclingService;
@@ -98,6 +106,7 @@ public class CvPipelineService {
         this.objectMapper    = objectMapper;
         this.meterRegistry   = meterRegistry;
         this.txWrite         = new TransactionTemplate(txManager);
+        this.aiProps         = aiProps;
     }
 
     // ── Entrée publique ───────────────────────────────────────────────────────
@@ -108,6 +117,7 @@ public class CvPipelineService {
         Timer.Sample totalSample = Timer.start(meterRegistry);
 
         // TX 1 (courte) : load + garde idempotence + EN_COURS + commit → connexion libérée
+        // findByIdWithProjet charge eagerly : projet, ficheDePoste, direction, besoinRecrutement
         Candidature snapshot = txWrite.execute(status -> {
             var opt = candidatureRepo.findByIdWithProjet(candidatureId);
             if (opt.isEmpty()) {
@@ -130,6 +140,12 @@ public class CvPipelineService {
         });
 
         if (snapshot == null) return;
+
+        // Contexte fiche de poste enrichi — construit depuis le snapshot détaché (tout chargé en TX1)
+        // JobDescriptionContext est un record immuable, parfaitement sûr hors TX.
+        String fdpContexte = JobDescriptionContext
+                .from(snapshot.getProjetRecrutement(), aiProps.company())
+                .toPromptText();
 
         // ── Appels externes — aucune connexion DB tenue ───────────────────────
         try {
@@ -189,23 +205,24 @@ public class CvPipelineService {
                 }
             }
 
-            // Étape 4 : Évaluation IA (score + recommandation) (retry × 3 via AiGateway)
-            String fdpTexte = buildFicheDePosteTexte(snapshot.getProjetRecrutement().getFicheDePoste());
+            // Étape 4 : Évaluation IA enrichie (score + recommandation + questions entretien)
+            // fdpContexte contient : entreprise, fiche complète (avec direction), besoin, objet candidature
             log.info("[Pipeline] évaluation LLM pour candidature={} / poste='{}'",
                     candidatureId, snapshot.getProjetRecrutement().getFicheDePoste().getIntitulePoste());
             EvaluationCv evaluation = Timer.builder(METRIC_STEP)
                     .tag(TAG_STEP, "evaluate")
                     .description("Durée évaluation CV / fiche de poste (LLM)")
                     .register(meterRegistry)
-                    .record(() -> aiGateway.evaluer(fdpTexte, cvMd));
+                    .record(() -> aiGateway.evaluer(fdpContexte, cvMd));
 
-            // Garde : cohérence score ↔ recommandation
-            // Si le LLM retourne score=30 avec "A_CONVOQUER", on corrige depuis le score.
             int score = clampScore(evaluation.scoreMatching());
-            RecommandationIA recommandation = enforceCoherence(
-                    score, parseRecommandation(evaluation.recommandation()));
+            // parseRecommandation() valide la valeur retournée par le LLM contre l'enum.
+            // Le LLM est libre de choisir la recommandation cohérente avec son score.
+            RecommandationIA recommandation = parseRecommandation(evaluation.recommandation());
 
-            log.info("[Pipeline] score={}, recommandation={}", score, recommandation);
+            log.info("[Pipeline] score={}, recommandation={}, questions={}",
+                    score, recommandation, evaluation.questionsEntretien() != null
+                            ? evaluation.questionsEntretien().size() : 0);
 
             // TX 2 (courte) : reload entité propre → persister résultats → EVALUE → commit
             final CandidatInfo     finalInfo  = info;
@@ -225,6 +242,7 @@ public class CvPipelineService {
                 c.setPointsManquants(toJson(finalEval.pointsManquants()));
                 c.setRecommandation(finalReco);
                 c.setJustificationIa(finalEval.justificationIa());
+                c.setQuestionsEntretien(toJson(finalEval.questionsEntretien()));
                 c.setStatut(StatutCandidature.EVALUE);
                 c.setEvalueLe(LocalDateTime.now());
                 return candidatureRepo.save(c);
@@ -281,55 +299,7 @@ public class CvPipelineService {
     }
 
     /**
-     * Vérifie la cohérence entre le score et la recommandation retournés par le LLM.
-     * Si incohérents, le score est la source de vérité — la recommandation est recalculée.
-     * Exemple : score=30 avec "A_CONVOQUER" → corrigé en "NE_CORRESPOND_PAS".
-     */
-    private static RecommandationIA enforceCoherence(int score, RecommandationIA parsed) {
-        RecommandationIA expected = scoreToRecommandation(score);
-        if (expected != parsed) {
-            log.warn("[Pipeline] incohérence LLM — score={} implique '{}' mais LLM a retourné '{}' → corrigé",
-                    score, expected, parsed);
-            return expected;
-        }
-        return parsed;
-    }
-
-    /** Calcule la recommandation attendue d'après le barème défini dans le prompt CvEvaluator. */
-    private static RecommandationIA scoreToRecommandation(int score) {
-        if (score >= 75) return RecommandationIA.A_CONVOQUER;
-        if (score >= 45) return RecommandationIA.A_ETUDIER;
-        return RecommandationIA.NE_CORRESPOND_PAS;
-    }
-
-    /**
-     * Construit le contexte textuel de la fiche de poste pour le prompt d'évaluation.
-     * safe() remplace null par "" — évite le mot "null" dans le prompt LLM.
-     */
-    private static String buildFicheDePosteTexte(FicheDePoste fdp) {
-        return """
-                Poste : %s
-                Mission principale : %s
-                Activités principales : %s
-                Niveau d'études requis : %s
-                Domaine de formation : %s
-                Années d'expérience requises : %d
-                Compétences techniques : %s
-                Compétences managériales : %s
-                """.formatted(
-                safe(fdp.getIntitulePoste()),
-                safe(fdp.getMissionPrincipale()),
-                safe(fdp.getActivitesPrincipales()),
-                safe(fdp.getNiveauEtudes().toString()),
-                safe(fdp.getDomaineFormation()),
-                fdp.getAnneesExperience(),
-                safe(fdp.getCompetencesTechniques()),
-                safe(fdp.getCompetencesManageriales())
-        );
-    }
-
-    /**
-     * Sérialise une List&lt;String&gt; en JSON pour stockage en colonne TEXT.
+     * Sérialise une List<String> en JSON pour stockage en colonne TEXT.
      * {@code CandidatureMapper.parseJsonList()} désérialisera ce JSON à la lecture.
      * Retourne "[]" en cas d'erreur ou de liste null/vide — jamais null en base.
      */
@@ -343,15 +313,11 @@ public class CvPipelineService {
         }
     }
 
-    /** Retourne "" si null — évite "null" dans les prompts LLM. */
-    private static String safe(String value) {
-        return value != null ? value : "";
-    }
-
     /**
      * Convertit la chaîne renvoyée par le LLM en enum RecommandationIA.
      * Tolère variations de casse et séparateurs parasites.
-     * Fallback → A_ETUDIER (valeur neutre) — enforceCoherence() corrigera ensuite si besoin.
+     * Fallback → A_ETUDIER (valeur neutre) si la valeur est inconnue.
+     * Le LLM est responsable de la cohérence score ↔ recommandation (prompt explicite).
      */
     private static RecommandationIA parseRecommandation(String raw) {
         if (raw == null) return RecommandationIA.A_ETUDIER;
