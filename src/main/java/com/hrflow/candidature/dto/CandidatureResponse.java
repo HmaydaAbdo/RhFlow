@@ -32,6 +32,9 @@ public record CandidatureResponse(
         RecommandationIA  recommandation,
         String            justificationIa,
 
+        // Questions d'entretien générées par l'IA
+        List<String>      questionsEntretien,
+
         // Statut & dates
         StatutCandidature statut,
         LocalDateTime     deposeLe,
