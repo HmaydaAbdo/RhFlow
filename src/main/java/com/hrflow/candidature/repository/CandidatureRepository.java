@@ -50,7 +50,9 @@ public interface CandidatureRepository
     @Query("""
         SELECT c FROM Candidature c
         JOIN FETCH c.projetRecrutement pr
-        JOIN FETCH pr.ficheDePoste
+        JOIN FETCH pr.ficheDePoste fdp
+        JOIN FETCH fdp.direction
+        JOIN FETCH pr.besoinRecrutement
         WHERE c.id = :id
         """)
     Optional<Candidature> findByIdWithProjet(@Param("id") Long id);
