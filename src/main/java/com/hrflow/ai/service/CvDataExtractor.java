@@ -25,13 +25,10 @@ public interface CvDataExtractor {
     1. Extraire UNIQUEMENT ce qui est explicitement écrit dans le CV.
     2. Ne jamais inventer, déduire ou compléter une information absente.
     3. Si une information est absente ou ambiguë, retourner null pour ce champ.
-    4. Pour l'email : format xxx@xxx.xx uniquement.
-    5. Pour le téléphone : conserver le format original du CV (avec indicatif si présent).
+4. Pour l'email : extraire l'adresse telle qu'identifiable dans le texte, en ignorant les espaces parasites éventuels.    5. Pour le téléphone : conserver le format original du CV (avec indicatif si présent).
     6. Pour le nom : prénom + nom complet, tel qu'écrit dans le CV.
     """)
-    // @UserMessage sur la méthode — cohérence avec CvEvaluator.
-    // Avec un seul param le bug était masqué (la valeur brute était envoyée),
-    // mais le template "CV (Markdown) :\n{{cvMarkdown}}" était ignoré.
+
     @UserMessage("""
     Extrait les coordonnées du candidat depuis le CV suivant.
 
