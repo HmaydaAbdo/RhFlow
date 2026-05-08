@@ -6,30 +6,29 @@ import okhttp3.Dns;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 
 /**
- * Configuration MinIO.
+ * Configuration MinIO — deux clients, deux usages.
  *
- * <p>{@code @EnableConfigurationProperties} enregistre {@link MinioProperties}
- * comme bean Spring et déclenche la validation {@code @NotBlank} au démarrage —
- * sans avoir besoin de {@code @Component} sur {@code MinioProperties} elle-même.
+ * <ul>
+ *   <li>{@code minioClient} (primary) — endpoint interne ({@code host.docker.internal}).
+ *       Utilisé pour les opérations SDK (upload, delete) et pour les presigned URLs
+ *       consommées par docling-serve (Docker résout ce hostname).</li>
+ *   <li>{@code minioPublicClient} — endpoint public ({@code localhost:9000}).
+ *       Utilisé uniquement pour signer les presigned URLs de téléchargement browser.</li>
+ * </ul>
  *
- * <h3>OkHttpClient avec DNS override</h3>
- * Le SDK MinIO utilise OkHttp en interne. On lui injecte un client custom dont
- * le résolveur DNS peut surcharger UN hostname précis vers une IP fixe. Cela
- * permet de garder un endpoint canonique (ex : {@code host.docker.internal})
- * pour la signature des presigned URLs, tout en routant les sockets TCP du SDK
- * vers une IP joignable depuis le process JVM (ex : {@code 127.0.0.1}).
- *
- * <p>Si {@code app.minio.sdk-host-override} est vide, on utilise le client
- * OkHttp par défaut du SDK MinIO — comportement standard, aucun override.
+ * <p>SigV4 signe le header Host : chaque client génère des URLs valides pour
+ * son consommateur cible. On ne réécrit jamais une URL après signature.
  */
 @Configuration
 @EnableConfigurationProperties(MinioProperties.class)
@@ -37,6 +36,11 @@ public class MinioConfig {
 
     private static final Logger log = LoggerFactory.getLogger(MinioConfig.class);
 
+    /**
+     * Client interne — endpoint canonique avec DNS override optionnel.
+     * Utilisé pour toutes les opérations S3 et les presigned URLs docling.
+     */
+    @Primary
     @Bean
     public MinioClient minioClient(MinioProperties props) {
         MinioClient.Builder builder = MinioClient.builder()
@@ -48,6 +52,22 @@ public class MinioConfig {
             builder.httpClient(httpClient);
         }
         return builder.build();
+    }
+
+    /**
+     * Client public — endpoint joignable depuis le navigateur, sans DNS override.
+     * Utilisé uniquement pour générer les presigned URLs de téléchargement browser.
+     * Si {@code publicEndpoint} n'est pas configuré, on repart sur {@code endpoint}.
+     */
+    @Bean
+    @Qualifier("public")
+    public MinioClient minioPublicClient(MinioProperties props) {
+        String pub = props.effectivePublicEndpoint();
+        log.info("[MinIO] client public initialisé sur '{}'", pub);
+        return MinioClient.builder()
+                .endpoint(pub)
+                .credentials(props.getAccessKey(), props.getSecretKey())
+                .build();
     }
 
     /**

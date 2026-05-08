@@ -7,19 +7,19 @@ import org.springframework.validation.annotation.Validated;
 /**
  * Propriétés MinIO lues depuis application.yaml (préfixe "app.minio").
  *
- * <h3>Pourquoi un seul endpoint mais un DNS override ?</h3>
- * Spring Boot tourne sur l'hôte alors que docling-serve tourne dans Docker.
- * Pour que les presigned URLs (signées par AWS Signature V4) restent valides
- * côté docling, le hostname doit être identique entre :
- *   - l'endpoint utilisé par le SDK pour signer (canonical request inclut Host)
- *   - le hostname inscrit dans l'URL retournée
+ * <h3>Deux endpoints, deux usages</h3>
+ * <ul>
+ *   <li>{@code endpoint} — endpoint interne, utilisé par le SDK pour les opérations
+ *       S3 (upload, delete) et pour signer les presigned URLs consommées par
+ *       docling-serve (Docker). Ex dev : {@code http://host.docker.internal:9000}.</li>
+ *   <li>{@code publicEndpoint} — endpoint joignable depuis le navigateur, utilisé
+ *       uniquement pour signer les presigned URLs de téléchargement browser.
+ *       Ex dev : {@code http://localhost:9000}. Si vide, on replie sur {@code endpoint}.</li>
+ * </ul>
  *
- * <p>En dev local, on utilise donc {@code http://host.docker.internal:9000}
- * partout. Mais le process JVM hôte ne peut pas toujours résoudre ce hostname
- * vers une IP joignable (Docker Desktop sur Windows met parfois une IP LAN
- * non-routable). On contourne via {@link #sdkHostOverride} : un mapping
- * {@code hostname=ip} appliqué UNIQUEMENT à la couche TCP du SDK MinIO
- * (custom OkHttp DNS), sans toucher au hostname signé.
+ * <p>SigV4 signe le header Host : chaque client signe avec son propre endpoint,
+ * donc chaque URL reste valide sur son consommateur cible (docling OU browser).
+ * On ne réécrit jamais une URL après signature.
  *
  * <p>{@code @Validated} : Spring valide les contraintes au démarrage.
  *
@@ -31,13 +31,22 @@ import org.springframework.validation.annotation.Validated;
 public class MinioProperties {
 
     /**
-     * URL canonique de MinIO, utilisée à la fois pour signer les presigned URLs
-     * et comme hostname dans les URLs retournées.
+     * URL canonique interne de MinIO — utilisée pour les opérations SDK (upload,
+     * delete) et pour signer les presigned URLs consommées par docling-serve.
      * Ex dev local : {@code http://host.docker.internal:9000}.
-     * Ex prod : {@code http://minio:9000}.
+     * Ex prod      : {@code http://minio:9000}.
      */
     @NotBlank(message = "app.minio.endpoint est requis")
     private String endpoint;
+
+    /**
+     * URL publique de MinIO joignable depuis le navigateur — utilisée uniquement
+     * pour signer les presigned URLs de téléchargement browser.
+     * Ex dev local : {@code http://localhost:9000}.
+     * Ex prod      : {@code https://minio.mon-domaine.com}.
+     * Si vide ou null, on utilise {@code endpoint} en repli.
+     */
+    private String publicEndpoint;
 
     /** Clé d'accès (équivalent username). */
     @NotBlank(message = "app.minio.access-key est requis")
@@ -52,30 +61,32 @@ public class MinioProperties {
     private String bucketName;
 
     /**
-     * Optionnel — DNS override pour les sockets TCP sortants du SDK MinIO uniquement.
-     * Format : {@code hostname=ip} (ex : {@code host.docker.internal=127.0.0.1}).
+     * Optionnel — DNS override pour les sockets TCP sortants du SDK MinIO interne
+     * uniquement. Format : {@code hostname=ip} (ex : {@code host.docker.internal=127.0.0.1}).
      * Vide ou null = pas d'override (résolution DNS standard).
-     *
-     * <p>Cas d'usage : Spring Boot tourne sur l'hôte, MinIO est exposé via
-     * docker-compose sur {@code localhost:9000}, mais l'endpoint canonique
-     * (utilisé pour signer + dans les URLs) doit être {@code host.docker.internal}
-     * pour que docling-serve puisse les résoudre. Le SDK signe correctement
-     * et la TCP est routée vers localhost, sans toucher la signature.
      */
     private String sdkHostOverride;
 
-    public String getEndpoint() { return endpoint; }
-    public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
+    /** Renvoie l'endpoint public si défini, sinon l'endpoint interne. */
+    public String effectivePublicEndpoint() {
+        return (publicEndpoint != null && !publicEndpoint.isBlank()) ? publicEndpoint : endpoint;
+    }
+
+    public String getEndpoint()       { return endpoint; }
+    public void   setEndpoint(String v) { this.endpoint = v; }
+
+    public String getPublicEndpoint()       { return publicEndpoint; }
+    public void   setPublicEndpoint(String v) { this.publicEndpoint = v; }
 
     public String getAccessKey()  { return accessKey; }
-    public void setAccessKey(String accessKey) { this.accessKey = accessKey; }
+    public void   setAccessKey(String v) { this.accessKey = v; }
 
     public String getSecretKey()  { return secretKey; }
-    public void setSecretKey(String secretKey) { this.secretKey = secretKey; }
+    public void   setSecretKey(String v) { this.secretKey = v; }
 
     public String getBucketName() { return bucketName; }
-    public void setBucketName(String bucketName) { this.bucketName = bucketName; }
+    public void   setBucketName(String v) { this.bucketName = v; }
 
     public String getSdkHostOverride() { return sdkHostOverride; }
-    public void setSdkHostOverride(String sdkHostOverride) { this.sdkHostOverride = sdkHostOverride; }
+    public void   setSdkHostOverride(String v) { this.sdkHostOverride = v; }
 }
