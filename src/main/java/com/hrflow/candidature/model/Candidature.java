@@ -88,6 +88,9 @@ public class Candidature {
     @Column(name = "justification_ia", columnDefinition = "TEXT")
     private String justificationIa;
 
+    @Column(name = "questions_entretien", columnDefinition = "TEXT")
+    private String questionsEntretien;
+
     // ── Statut & dates ───────────────────────────────────────────────────────────
 
     @Enumerated(EnumType.STRING)
@@ -153,6 +156,9 @@ public class Candidature {
 
     public String getJustificationIa() { return justificationIa; }
     public void setJustificationIa(String s) { this.justificationIa = s; }
+
+    public String getQuestionsEntretien() { return questionsEntretien; }
+    public void setQuestionsEntretien(String s) { this.questionsEntretien = s; }
 
     public StatutCandidature getStatut() { return statut; }
     public void setStatut(StatutCandidature s) { this.statut = s; }
