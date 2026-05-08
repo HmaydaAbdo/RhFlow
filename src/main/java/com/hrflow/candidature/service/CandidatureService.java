@@ -105,10 +105,9 @@ public class CandidatureService {
 
         validatePageCount(file);
 
-        String ext        = safeExtension(file.getOriginalFilename());
-        String objectPath = "projets/" + projetId + "/cvs/" + UUID.randomUUID() + "." + ext;
-
         // TX 1 : persistance candidature — connexion libérée à la sortie du lambda
+        // Le chemin MinIO est calculé ICI car il dépend de l'intitulé de la fiche de poste
+        // chargée dans cette même TX. On le lit via saved.getCheminMinio() après commit.
         Candidature saved = txWrite.execute(status -> {
 
             var projet = projetRepo.findWithDetailsById(projetId)
@@ -116,11 +115,16 @@ public class CandidatureService {
 
             enforceDirecteurOwnership(projet);
 
-            String nomFichier  = file.getOriginalFilename() != null
-                    ? file.getOriginalFilename() : "cv_" + UUID.randomUUID();
-
+            String nomFichier  = safeFileName(file.getOriginalFilename());
             String typeFichier = file.getContentType() != null
                     ? file.getContentType() : "application/octet-stream";
+
+            // Chemin : cvs/{slug-intitulé}/{UUID}/{nomFichierOriginal}
+            // - slug   : intitulé du poste normalisé (sans accents, sans espaces)
+            // - UUID   : sous-dossier unique par upload → pas d'écrasement si même nom de fichier
+            // - nom    : nom original conservé tel quel pour la lisibilité dans MinIO
+            String slug       = slugifyPoste(projet.getFicheDePoste().getIntitulePoste());
+            String objectPath = "cvs/" + slug + "/" + UUID.randomUUID() + "/" + nomFichier;
 
             var candidature = new Candidature();
             candidature.setProjetRecrutement(projet);
@@ -138,6 +142,7 @@ public class CandidatureService {
         });
 
         // TX commitée, connexion libérée — upload MinIO
+        String objectPath = saved.getCheminMinio();
         try {
             minioService.upload(objectPath, file);
             log.info("[Candidature] CV uploadé → {} (projet={})", objectPath, projetId);
@@ -168,7 +173,7 @@ public class CandidatureService {
 
         enforceDirecteurOwnership(projet);
 
-        Sort sort = Sort.by(Sort.Order.desc("scoreMatching").nullsLast())
+        Sort sort = Sort.by(Sort.Order.desc("scoreMatching"))
                         .and(Sort.by(Sort.Direction.DESC, "deposeLe"));
 
         int     cappedSize = Math.min(Math.max(size, 1), 100);
@@ -242,7 +247,7 @@ public class CandidatureService {
     public String presignedUrl(Long id) {
         var c = findWithProjet(id);
         enforceDirecteurOwnership(c.getProjetRecrutement());
-        return minioService.presignedUrl(c.getCheminMinio());
+        return minioService.presignedUrlForBrowser(c.getCheminMinio(), c.getNomFichier());
     }
 
     // ── Supprimer ────────────────────────────────────────────────────────────────
@@ -361,10 +366,42 @@ public class CandidatureService {
 
     // ── File utils ──────────────────────────────────────────────────────────────
 
-    private String safeExtension(String filename) {
-        if (filename == null || !filename.contains(".")) return "bin";
-        String ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
-        return ALLOWED_EXTENSIONS.contains(ext) ? ext : "bin";
+    /**
+     * Retourne le nom de fichier original nettoyé (sans séparateurs de chemin).
+     * Repli sur "cv_<uuid>" si null ou vide.
+     */
+    private static String safeFileName(String original) {
+        if (original == null || original.isBlank()) return "cv_" + UUID.randomUUID();
+        // Retire tout chemin (ex: "../../etc/passwd") en ne gardant que le nom de base
+        String name = original.replaceAll("[/\\\\]", "_").trim();
+        if (name.isBlank()) return "cv_" + UUID.randomUUID();
+        // Valide l'extension via la liste autorisée
+        int dot = name.lastIndexOf('.');
+        if (dot >= 0) {
+            String ext = name.substring(dot + 1).toLowerCase();
+            if (!ALLOWED_EXTENSIONS.contains(ext)) {
+                name = name.substring(0, dot + 1) + "bin";
+            }
+        }
+        return name;
+    }
+
+    /**
+     * Slugifie l'intitulé du poste pour l'utiliser comme dossier MinIO.
+     * Ex : "Développeur Java Sénior" → "developpeur-java-senior"
+     * Les caractères hors [a-z0-9-] sont remplacés par "-", les tirets consécutifs réduits.
+     */
+    private static String slugifyPoste(String intitule) {
+        if (intitule == null || intitule.isBlank()) return "sans-intitule";
+        // 1. Normalisation NFD : décompose les caractères accentués (é → e + combining)
+        String normalized = java.text.Normalizer.normalize(intitule, java.text.Normalizer.Form.NFD);
+        // 2. Supprime les combinaisons diacritiques (accents)
+        String ascii = normalized.replaceAll("\\p{InCombiningDiacriticalMarks}", "");
+        // 3. Minuscules + remplacement des caractères non alphanumériques par "-"
+        String slug = ascii.toLowerCase()
+                           .replaceAll("[^a-z0-9]+", "-")
+                           .replaceAll("^-+|-+$", ""); // trim tirets
+        return slug.isBlank() ? "sans-intitule" : slug;
     }
 
     private String currentUserEmail() {
