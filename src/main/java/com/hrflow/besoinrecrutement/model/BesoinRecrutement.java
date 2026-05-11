@@ -36,6 +36,12 @@ public class BesoinRecrutement {
     @JoinColumn(name = "created_by_id", nullable = false)
     private User createdBy;
 
+    @Column(nullable = false, length = 200)
+    private String lieuAffectation;
+
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String motif;
+
     @Column(nullable = false)
     private int nombrePostes;
 
@@ -100,6 +106,12 @@ public class BesoinRecrutement {
 
     public User getCreatedBy() { return createdBy; }
     public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
+
+    public String getLieuAffectation() { return lieuAffectation; }
+    public void setLieuAffectation(String lieuAffectation) { this.lieuAffectation = lieuAffectation; }
+
+    public String getMotif() { return motif; }
+    public void setMotif(String motif) { this.motif = motif; }
 
     public int getNombrePostes() { return nombrePostes; }
     public void setNombrePostes(int nombrePostes) { this.nombrePostes = nombrePostes; }

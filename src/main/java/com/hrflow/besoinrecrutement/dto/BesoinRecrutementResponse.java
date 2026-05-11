@@ -16,6 +16,8 @@ public record BesoinRecrutementResponse(
     String directeurNom,
     Long createdById,
     String createdByNom,
+    String lieuAffectation,
+    String motif,
     int nombrePostes,
     LocalDate dateSouhaitee,
     PrioriteBesoin priorite,
