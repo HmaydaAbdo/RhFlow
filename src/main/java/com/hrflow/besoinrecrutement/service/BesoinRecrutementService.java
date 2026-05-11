@@ -174,9 +174,9 @@ public class BesoinRecrutementService {
     // =====================================================================
 
     @Transactional(readOnly = true)
-    public BesoinRecrutementResponse findById(Long id) {
+    public BesoinRecrutementDetailResponse findById(Long id) {
         BesoinRecrutement besoin = loadWithDetails(id);
-        return toFullResponse(besoin);
+        return besoinMapper.toDetailResponse(besoin);
     }
 
     // =====================================================================

@@ -45,11 +45,11 @@ public class BesoinRecrutementController {
     }
 
     /**
-     * Détail complet d'un besoin.
+     * Détail complet d'un besoin — inclut la fiche de poste complète.
      */
     @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH', 'DIRECTEUR')")
     @GetMapping("/{id}")
-    public ResponseEntity<BesoinRecrutementResponse> getById(@PathVariable Long id) {
+    public ResponseEntity<BesoinRecrutementDetailResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(besoinService.findById(id));
     }
 
