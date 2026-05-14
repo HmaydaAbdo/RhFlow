@@ -13,6 +13,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/directions")
 public class DirectionController {
@@ -31,6 +33,13 @@ public class DirectionController {
 
         return ResponseEntity.ok(
                 directionService.search(new DirectionSearchDto(nom, directeurId), pageable));
+    }
+
+    /** Retourne les directions gérées par le directeur connecté. */
+    @GetMapping("/mine")
+    @PreAuthorize("hasAuthority('DIRECTEUR')")
+    public ResponseEntity<List<DirectionResponse>> getMine() {
+        return ResponseEntity.ok(directionService.findMine());
     }
 
     @GetMapping("/{id}")

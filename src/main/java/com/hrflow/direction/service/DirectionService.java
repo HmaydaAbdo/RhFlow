@@ -17,6 +17,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +60,22 @@ public class DirectionService {
                 ));
 
         return page.map(d -> toResponseWithCount(d, countMap.getOrDefault(d.getId(), 0L)));
+    }
+
+    /**
+     * Retourne les directions gérées par l'utilisateur connecté (rôle DIRECTEUR).
+     * Utilisé par le formulaire de fiche de poste pour pré-remplir le champ direction.
+     */
+    @Transactional(readOnly = true)
+    public List<DirectionResponse> findMine() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        User user = userRepository.findWithRolesByEmail(auth.getName())
+                .orElseThrow(() -> new UserNotFoundException(auth.getName()));
+
+        return directionRepository.findByDirecteurId(user.getId())
+                .stream()
+                .map(this::toResponseWithCount)
+                .toList();
     }
 
     @Transactional(readOnly = true)
