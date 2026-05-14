@@ -35,7 +35,7 @@ public class DataSeeder {
         return args -> {
 
             // ========== SEED ROLES ==========
-            List<String> roleNames = List.of("ADMIN", "DRH", "DIRECTEUR");
+            List<String> roleNames = List.of("ADMIN", "DRH", "DIRECTEUR", "DG");
 
             Map<String, Role> roles = new HashMap<>();
             for (String name : roleNames) {
@@ -53,7 +53,8 @@ public class DataSeeder {
                     new SeedUser("admin@rh.ma",    "00000000", "Hmayda Abdessamad", "0677606492", List.of("ADMIN")),
                     new SeedUser("drh@rh.ma",       "00000000", "MOUSTAJID ISMAIL",  "0648454346", List.of("DRH", "DIRECTEUR")),
                     new SeedUser("directeur@rh.ma", "00000000", "MEHDI TROUSSI",     "0662150238", List.of("DIRECTEUR")),
-                    new SeedUser("yamani@rh.ma",    "00000000", "YAMANI ABDLHAFID",  "0600000001", List.of("DIRECTEUR"))
+                    new SeedUser("yamani@rh.ma",    "00000000", "YAMANI ABDLHAFID",  "0600000001", List.of("DIRECTEUR")),
+                    new SeedUser("dg@rh.ma",        "00000000", "Mouhamed Berhich",  "0000000000", List.of("DG"))
             );
 
             for (SeedUser s : seedUsers) {
