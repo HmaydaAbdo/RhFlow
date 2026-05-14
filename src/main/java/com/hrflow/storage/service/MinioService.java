@@ -165,6 +165,25 @@ public class MinioService {
         }
     }
 
+    // ── Get bytes ─────────────────────────────────────────────────────────────
+
+    /**
+     * Télécharge un objet et retourne son contenu en bytes.
+     * Utilisé pour embarquer des images (signatures) en Base64 dans les PDF.
+     */
+    public byte[] getBytes(String objectPath) {
+        try (InputStream is = client.getObject(
+                GetObjectArgs.builder()
+                    .bucket(props.getBucketName())
+                    .object(objectPath)
+                    .build())) {
+            return is.readAllBytes();
+        } catch (Exception e) {
+            log.error("[MinIO] getBytes échoué pour '{}' : {}", objectPath, e.getMessage());
+            throw new MinioStorageException("Impossible de lire le fichier depuis MinIO", e);
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static String resolveContentType(MultipartFile file) {

@@ -159,6 +159,17 @@
             <artifactId>langchain4j-spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- ========== PDF EXPORT — Thymeleaf + OpenHTMLtoPDF ========== -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>1.0.10</version>
+        </dependency>
+
         <!-- ========== ARCONIA DOCLING — SDK officiel Java pour docling-serve ========== -->
         <!-- Auto-configure DoclingServeApi/DoclingServeClient (Spring HTTP-interface).  -->
         <!-- Le SDK appelle l'endpoint SYNCHRONE POST /v1/convert/source.                -->
