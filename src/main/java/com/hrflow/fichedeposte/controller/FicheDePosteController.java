@@ -50,14 +50,14 @@ public class FicheDePosteController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH', 'DIRECTEUR')")
     public ResponseEntity<FicheDePosteResponse> create(@Valid @RequestBody FicheDePosteRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ficheDePosteService.create(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH', 'DIRECTEUR')")
     public ResponseEntity<FicheDePosteResponse> update(
             @PathVariable Long id,
             @Valid @RequestBody FicheDePosteRequest request) {

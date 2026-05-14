@@ -101,7 +101,14 @@ public class FicheDePosteService {
 
     @Transactional
     public FicheDePosteResponse create(FicheDePosteRequest request) {
+        User currentUser = getAuthenticatedUser();
         Direction direction = resolveDirection(request.directionId());
+
+        // Un DIRECTEUR (sans DRH ni ADMIN) ne peut créer que pour sa propre direction
+        if (isDirecteurOnly(currentUser)) {
+            assertDirecteurOwnsDirection(direction, currentUser);
+        }
+
         FicheDePoste fiche = ficheDePosteMapper.toEntity(request);
         fiche.setDirection(direction);
         FicheDePoste saved = ficheDePosteRepository.save(fiche);
@@ -111,9 +118,17 @@ public class FicheDePosteService {
 
     @Transactional
     public FicheDePosteResponse update(Long id, FicheDePosteRequest request) {
+        User currentUser = getAuthenticatedUser();
         FicheDePoste fiche = ficheDePosteRepository.findWithDirectionById(id)
                 .orElseThrow(() -> new FicheDePosteNotFoundException(id));
         Direction direction = resolveDirection(request.directionId());
+
+        // Un DIRECTEUR (sans DRH ni ADMIN) ne peut modifier que les fiches de sa direction
+        if (isDirecteurOnly(currentUser)) {
+            assertFicheBelongsToDirecteur(fiche, currentUser);
+            assertDirecteurOwnsDirection(direction, currentUser);
+        }
+
         ficheDePosteMapper.updateEntity(request, fiche);
         fiche.setDirection(direction);
         FicheDePoste saved = ficheDePosteRepository.save(fiche);
@@ -163,6 +178,19 @@ public class FicheDePosteService {
         if (!directionIds.contains(fiche.getDirection().getId())) {
             throw new FicheDePosteAccessDeniedException(
                     "Accès refusé : cette fiche de poste n'appartient pas à votre direction"
+            );
+        }
+    }
+
+    /**
+     * Vérifie que la direction cible est gérée par le directeur connecté.
+     * Utilisé lors de la création/modification d'une fiche par un DIRECTEUR.
+     */
+    private void assertDirecteurOwnsDirection(Direction direction, User directeur) {
+        List<Long> directionIds = directionRepository.findIdsByDirecteurId(directeur.getId());
+        if (!directionIds.contains(direction.getId())) {
+            throw new FicheDePosteAccessDeniedException(
+                    "Accès refusé : vous ne pouvez créer des fiches de poste que pour votre propre direction"
             );
         }
     }
