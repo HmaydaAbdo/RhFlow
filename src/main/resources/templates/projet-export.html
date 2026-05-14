@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <style>
+    @page {
+      size: A4;
+      margin: 1cm 1cm 1cm 1cm;
+      @bottom-right {
+        content: counter(page) " / " counter(pages);
+        font-family: "Times New Roman", Times, serif;
+        font-size: 9pt;
+        color: #888;
+      }
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 12pt;
+      color: #000;
+      line-height: 1.6;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 10pt; }
+    .header-left  { vertical-align: top; }
+    .header-right { vertical-align: top; text-align: right; }
+
+    .company-name {
+      font-size: 13pt;
+      letter-spacing: 0.5pt;
+      text-transform: uppercase;
+    }
+    .company-sub  { font-size: 10pt; margin-top: 2pt; }
+    .doc-meta     { font-size: 10pt; line-height: 1.6; }
+
+    /* ── Document title ──────────────────────────────────── */
+    .doc-title-block { margin: 0 0 8pt 0; }
+    .doc-title    { font-size: 13pt; }
+    .doc-subtitle { font-size: 11pt; margin-top: 3pt; }
+
+    /* ── Intro ───────────────────────────────────────────── */
+    .intro-text {
+      font-size: 11pt;
+      text-align: justify;
+      margin-bottom: 0;
+      line-height: 1.5;
+    }
+
+    /* ── Section ─────────────────────────────────────────── */
+    .section { margin-top: 10pt; }
+    .section-title {
+      font-size: 11pt;
+      text-transform: uppercase;
+      letter-spacing: 0.5pt;
+      margin-bottom: 4pt;
+    }
+
+    /* ── Key-value table (bordures 4 côtés) ─────────────── */
+    .kv-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11pt;
+    }
+    .kv-table tr { page-break-inside: avoid; }
+    .kv-label {
+      width: 36%;
+      padding: 3pt 6pt;
+      vertical-align: middle;
+      border: 1px solid #000;
+    }
+    .kv-value {
+      padding: 3pt 6pt;
+      vertical-align: middle;
+      border: 1px solid #000;
+      white-space: pre-wrap;
+      text-align: justify;
+    }
+
+    /* ── Transition ──────────────────────────────────────── */
+    .transition-text {
+      font-size: 11pt;
+      font-style: italic;
+      margin: 8pt 0 0 0;
+      text-align: justify;
+      line-height: 1.5;
+    }
+
+    /* ── Footer note ─────────────────────────────────────── */
+    .footer-note {
+      font-size: 10pt;
+      font-style: italic;
+      margin-top: 14pt;
+      line-height: 1.5;
+    }
+
+    /* ── Signature ───────────────────────────────────────── */
+    .sig-wrapper { page-break-inside: avoid; }
+    .sig-table { width: 100%; border-collapse: collapse; margin-top: 18pt; }
+    .sig-cell  { width: 33.33%; vertical-align: top; text-align: center; padding: 0 6pt; font-size: 11pt; line-height: 1.5; }
+    .sig-img   { max-width: 110pt; max-height: 40pt; display: inline-block; margin-top: 5pt; }
+    .sig-name  { font-size: 11pt; margin-top: 3pt; }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <table class="header-table">
+    <tr>
+      <td class="header-left">
+        <div class="company-name" th:text="${company.nom}">STAPORT SA</div>
+        <div class="company-sub" th:text="${company.ville}">Marrakech, Maroc</div>
+      </td>
+      <td class="header-right">
+        <div class="doc-meta">
+          <span th:text="${generatedAt}">01 janvier 2025</span><br/>
+          Ref. : <span th:text="${projet.objetCandidature}">RC-2025-001</span>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- TITLE -->
+  <div class="doc-title-block">
+    <div class="doc-title">Demande de Recrutement</div>
+    <div class="doc-subtitle">
+      Poste : <span th:text="${ficheDePoste.intitulePoste}">Intitulé du poste</span>
+      <th:block th:if="${fields.contexte.nombrePostes}">
+        &#160;&#8212;&#160;<span th:text="${projet.nombrePostes}">1</span> poste(s)
+      </th:block>
+    </div>
+  </div>
+
+  <!-- INTRO -->
+  <p class="intro-text" th:text="${introParagraph}">Paragraphe introductif.</p>
+
+  <!-- ═══════════════════════════════════════
+       SECTION I — BESOIN DE RECRUTEMENT
+  ════════════════════════════════════════ -->
+  <div class="section"
+       th:if="${fields.contexte.direction
+            or fields.contexte.directeur
+            or fields.contexte.lieuAffectation
+            or fields.contexte.nombrePostes
+            or fields.contexte.dateSouhaitee
+            or fields.contexte.priorite
+            or fields.contexte.motif}">
+
+    <div class="section-title">I. Contexte du Besoin de Recrutement</div>
+
+    <table class="kv-table">
+      <tr th:if="${fields.contexte.direction and ficheDePoste.direction != null}">
+        <td class="kv-label">Direction</td>
+        <td class="kv-value" th:text="${ficheDePoste.direction.nom}"></td>
+      </tr>
+      <tr th:if="${fields.contexte.directeur and besoin.directeur != null}">
+        <td class="kv-label">Responsable</td>
+        <td class="kv-value" th:text="${besoin.directeur.fullName}"></td>
+      </tr>
+      <tr th:if="${fields.contexte.lieuAffectation and besoin.lieuAffectation != null}">
+        <td class="kv-label">Lieu d'affectation</td>
+        <td class="kv-value" th:text="${besoin.lieuAffectation}"></td>
+      </tr>
+      <tr th:if="${fields.contexte.nombrePostes}">
+        <td class="kv-label">Nombre de postes</td>
+        <td class="kv-value" th:text="${projet.nombrePostes}"></td>
+      </tr>
+      <tr th:if="${fields.contexte.dateSouhaitee and besoin.dateSouhaitee != null}">
+        <td class="kv-label">Prise de fonction souhait&#233;e</td>
+        <td class="kv-value" th:text="${dateSouhaiteeFormatted}"></td>
+      </tr>
+      <tr th:if="${fields.contexte.priorite and besoin.priorite != null}">
+        <td class="kv-label">Priorit&#233;</td>
+        <td class="kv-value" th:text="${prioriteLibelle}"></td>
+      </tr>
+      <tr th:if="${fields.contexte.motif and besoin.motif != null}">
+        <td class="kv-label">Motif de la demande</td>
+        <td class="kv-value" th:text="${besoin.motif}"></td>
+      </tr>
+    </table>
+
+  </div>
+
+
+
+  <!-- ═══════════════════════════════════════
+       SECTION II — FICHE DE POSTE
+  ════════════════════════════════════════ -->
+  <div class="section"
+       th:if="${fields.fiche.niveauEtudes
+            or fields.fiche.domaineFormation
+            or fields.fiche.anneesExperience
+            or fields.fiche.missionPrincipale
+            or fields.fiche.activitesPrincipales
+            or fields.fiche.competencesTechniques
+            or fields.fiche.competencesManageriales}">
+
+    <div class="section-title">II. Fiche de Poste</div>
+
+    <table class="kv-table">
+      <tr th:if="${fields.fiche.niveauEtudes and ficheDePoste.niveauEtudes != null}">
+        <td class="kv-label">Niveau d'&#233;tudes requis</td>
+        <td class="kv-value" th:text="${niveauEtudesLibelle}"></td>
+      </tr>
+      <tr th:if="${fields.fiche.domaineFormation and ficheDePoste.domaineFormation != null}">
+        <td class="kv-label">Domaine de formation</td>
+        <td class="kv-value" th:text="${ficheDePoste.domaineFormation}"></td>
+      </tr>
+      <tr th:if="${fields.fiche.anneesExperience}">
+        <td class="kv-label">Exp&#233;rience minimum</td>
+        <td class="kv-value"
+            th:text="${ficheDePoste.anneesExperience == 0 ? 'Premi&#232;re exp&#233;rience accept&#233;e' : ficheDePoste.anneesExperience + ' an(s)'}"></td>
+      </tr>
+      <tr th:if="${fields.fiche.missionPrincipale and ficheDePoste.missionPrincipale != null}">
+        <td class="kv-label">Mission principale</td>
+        <td class="kv-value" th:text="${ficheDePoste.missionPrincipale}"></td>
+      </tr>
+      <tr th:if="${fields.fiche.activitesPrincipales and ficheDePoste.activitesPrincipales != null}">
+        <td class="kv-label">Activit&#233;s principales</td>
+        <td class="kv-value" th:text="${ficheDePoste.activitesPrincipales}"></td>
+      </tr>
+      <tr th:if="${fields.fiche.competencesTechniques and ficheDePoste.competencesTechniques != null}">
+        <td class="kv-label">Comp&#233;tences techniques</td>
+        <td class="kv-value" th:text="${ficheDePoste.competencesTechniques}"></td>
+      </tr>
+      <tr th:if="${fields.fiche.competencesManageriales and ficheDePoste.competencesManageriales != null}">
+        <td class="kv-label">Comp&#233;tences man&#97;g&#233;riales</td>
+        <td class="kv-value" th:text="${ficheDePoste.competencesManageriales}"></td>
+      </tr>
+    </table>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer-note">
+    Cette demande est soumise &#224; l'approbation de la Direction G&#233;n&#233;rale pour autorisation
+    de lancement du processus de recrutement.
+  </div>
+
+  <!-- SIGNATURES -->
+  <div class="sig-wrapper">
+    <table class="sig-table">
+      <tr>
+
+        <!-- Colonne DRH -->
+        <td class="sig-cell" th:if="${drhSignature != null}">
+          <div>Le Directeur des<br/>Ressources Humaines</div>
+          <div class="sig-name" th:text="${drhSignature.fullName}"></div>
+          <img th:if="${drhSignature.dataUrl != null}"
+               class="sig-img" th:src="${drhSignature.dataUrl}" alt="Signature DRH"/>
+        </td>
+        <td class="sig-cell" th:if="${drhSignature == null}"></td>
+
+        <!-- Colonne DG -->
+        <td class="sig-cell" th:if="${dgSignature != null}">
+          <div>Le Directeur G&#233;n&#233;ral</div>
+          <div class="sig-name" th:text="${dgSignature.fullName}"></div>
+          <img th:if="${dgSignature.dataUrl != null}"
+               class="sig-img" th:src="${dgSignature.dataUrl}" alt="Signature DG"/>
+        </td>
+        <td class="sig-cell" th:if="${dgSignature == null}"></td>
+
+        <!-- Colonne Directeur -->
+        <td class="sig-cell" th:if="${directeurSignature != null}">
+          <div>Le Directeur de
+            <th:block th:text="${ficheDePoste.direction != null ? ficheDePoste.direction.nom : 'la Direction'}">
+              la Direction
+            </th:block>
+          </div>
+          <div class="sig-name" th:text="${directeurSignature.fullName}"></div>
+          <img th:if="${directeurSignature.dataUrl != null}"
+               class="sig-img" th:src="${directeurSignature.dataUrl}" alt="Signature Directeur"/>
+        </td>
+        <td class="sig-cell" th:if="${directeurSignature == null}"></td>
+
+      </tr>
+    </table>
+  </div>
+
+</body>
+</html>
