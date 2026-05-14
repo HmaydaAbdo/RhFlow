@@ -8,5 +8,6 @@ public record UserResponse(
         String fullName,
         String gsm,
         boolean enabled,
-        List<String> roles
+        List<String> roles,
+        boolean hasSignature
 ) {}

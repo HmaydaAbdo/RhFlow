@@ -168,15 +168,26 @@ public class UserService {
     //  ROLE MANAGEMENT (assign / unassign roles à un user)
     // ==========================================================================
 
+    /** Rôles dont l'unicité est contrainte à un seul porteur dans toute l'application. */
+    private static final Set<String> UNIQUE_ROLES = Set.of("ADMIN", "DRH", "DG");
+
     @Transactional
     public UserResponse addRoleToUser(Long userId, Long roleId) {
         User user = userRepository.findWithRolesById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RoleNotFoundException(roleId));
+
         if (user.getRoles().contains(role)) {
             throw UserRoleException.alreadyAssigned(userId, roleId);
         }
+
+        // Vérifier l'unicité pour les rôles contraints (ex: DRH)
+        if (UNIQUE_ROLES.contains(role.getRoleName())
+                && userRepository.existsOtherUserWithRole(role.getRoleName(), userId)) {
+            throw UserRoleException.uniqueRoleViolation(role.getRoleName());
+        }
+
         user.getRoles().add(role);
         user = userRepository.save(user);
         log.info("Rôle {} ajouté au user id={} par acteur={}",

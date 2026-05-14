@@ -16,6 +16,7 @@ public class UserMapper {
                 .toList();
 
         return new UserResponse(user.getId(), user.getEmail(), user.getFullName(),
-                user.getGsm(), user.isEnabled(), roles);
+                user.getGsm(), user.isEnabled(), roles,
+                user.getSignatureKey() != null);
     }
 }

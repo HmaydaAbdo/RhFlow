@@ -36,6 +36,14 @@ public class User {
     @Column(nullable = false)
     private boolean enabled;
 
+    /** Clé MinIO de la signature numérisée (ex: signatures/user-42.png). Null si non configurée. */
+    @Column(name = "signature_key", length = 500)
+    private String signatureKey;
+
+    /** Type MIME de la signature (image/png ou image/jpeg). */
+    @Column(name = "signature_content_type", length = 50)
+    private String signatureContentType;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "users_roles",
@@ -108,6 +116,12 @@ public class User {
 
     public Long getVersion() { return version; }
     public void setVersion(Long version) { this.version = version; }
+
+    public String getSignatureKey() { return signatureKey; }
+    public void setSignatureKey(String signatureKey) { this.signatureKey = signatureKey; }
+
+    public String getSignatureContentType() { return signatureContentType; }
+    public void setSignatureContentType(String signatureContentType) { this.signatureContentType = signatureContentType; }
 
     // ========== EQUALS / HASHCODE ==========
 
