@@ -7,30 +7,38 @@ import dev.langchain4j.service.V;
 import dev.langchain4j.service.spring.AiService;
 
 /**
- * Extraction des coordonnées du candidat à partir du texte Markdown de son CV.
+ * Extraction des informations du candidat à partir du texte Markdown de son CV.
  *
- * Retourne un {@link CandidatInfo} avec les champs trouvés dans le document.
- * Les champs non trouvés sont null — jamais inventés.
+ * Retourne un {@link CandidatInfo} avec coordonnées, formations et expériences
+ * professionnelles. Les détails contractuels (format de chaque champ, règle
+ * « null si absent ») sont portés par les {@code @Description} sur le record
+ * et ses sous-records — ces descriptions sont injectées dans le schéma JSON
+ * envoyé au LLM, donc inutile de les répéter dans le prompt.
  *
- * LangChain4j génère automatiquement le schéma JSON et force la sortie structurée.
+ * LangChain4j génère le schéma depuis le record (y compris les records imbriqués
+ * Formation / ExperienceProfessionnelle) et force la sortie structurée.
  */
 @AiService
 public interface CvDataExtractor {
 
     @SystemMessage("""
-    Tu es un extracteur d'informations de CV. Ton seul rôle est d'extraire
-    les coordonnées du candidat depuis le texte du CV fourni.
+    Tu es un extracteur d'informations de CV. Ton seul rôle est d'extraire,
+    depuis le texte du CV fourni, les coordonnées du candidat, ses formations
+    et ses expériences professionnelles.
 
-    RÈGLES STRICTES :
+    RÈGLES ABSOLUES :
     1. Extraire UNIQUEMENT ce qui est explicitement écrit dans le CV.
-    2. Ne jamais inventer, déduire ou compléter une information absente.
-    3. Si une information est absente ou ambiguë, retourner null pour ce champ.
-4. Pour l'email : extraire l'adresse telle qu'identifiable dans le texte, en ignorant les espaces parasites éventuels.    5. Pour le téléphone : conserver le format original du CV (avec indicatif si présent).
-    6. Pour le nom : prénom + nom complet, tel qu'écrit dans le CV.
-    """)
+    2. Ne JAMAIS inventer, déduire, deviner ou compléter une information absente.
+    3. Si une information scalaire est absente ou ambiguë → retourner null.
+    4. Si une rubrique entière est absente (aucune formation, aucune expérience)
+       → retourner une liste vide pour cette rubrique.
+    5. Préserver l'ordre des formations et expériences tel qu'il apparaît dans le CV.
 
+    Le format précis attendu pour chaque champ est décrit par le schéma de sortie
+    (descriptions associées à chaque propriété). Respecte-le strictement.
+    """)
     @UserMessage("""
-    Extrait les coordonnées du candidat depuis le CV suivant.
+    Extrait les informations du candidat depuis le CV suivant.
 
     CV (Markdown) :
     {{cvMarkdown}}

@@ -70,6 +70,21 @@ public class Candidature {
     @Column(name = "telephone_candidat", length = 50)
     private String telephoneCandidat;
 
+    /**
+     * Formations extraites du CV, sérialisées en JSON (liste de {titre, dateObtention}).
+     * {@code CandidatureMapper.parseFormations()} désérialise ce JSON à la lecture.
+     */
+    @Column(name = "formations", columnDefinition = "TEXT")
+    private String formations;
+
+    /**
+     * Expériences professionnelles extraites du CV, sérialisées en JSON
+     * (liste de {titre, entreprise, periode}).
+     * {@code CandidatureMapper.parseExperiences()} désérialise ce JSON à la lecture.
+     */
+    @Column(name = "experiences", columnDefinition = "TEXT")
+    private String experiences;
+
     // ── Évaluation IA ────────────────────────────────────────────────────────────
 
     @Column(name = "score_matching")
@@ -141,6 +156,12 @@ public class Candidature {
 
     public String getTelephoneCandidat() { return telephoneCandidat; }
     public void setTelephoneCandidat(String s) { this.telephoneCandidat = s; }
+
+    public String getFormations() { return formations; }
+    public void setFormations(String s) { this.formations = s; }
+
+    public String getExperiences() { return experiences; }
+    public void setExperiences(String s) { this.experiences = s; }
 
     public Integer getScoreMatching() { return scoreMatching; }
     public void setScoreMatching(Integer i) { this.scoreMatching = i; }

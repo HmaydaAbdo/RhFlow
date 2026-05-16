@@ -184,8 +184,10 @@ public class CvPipelineService {
                     .description("Durée extraction coordonnées candidat (LLM)")
                     .register(meterRegistry)
                     .record(() -> aiGateway.extraire(cvMd));
-            log.info("[Pipeline] extrait → nom='{}', email='{}', tel='{}'",
-                    info.nomCandidat(), info.emailCandidat(), info.telephoneCandidat());
+            log.info("[Pipeline] extrait → nom='{}', email='{}', tel='{}', formations={}, expériences={}",
+                    info.nomCandidat(), info.emailCandidat(), info.telephoneCandidat(),
+                    info.formations() != null ? info.formations().size() : 0,
+                    info.experiences() != null ? info.experiences().size() : 0);
 
             // Étape 3 : Contrôle doublon email × projet
             if (info.emailCandidat() != null && !info.emailCandidat().isBlank()) {
@@ -237,6 +239,8 @@ public class CvPipelineService {
                 c.setNomCandidat(normalise(finalInfo.nomCandidat()));
                 c.setEmailCandidat(normalise(finalInfo.emailCandidat()));
                 c.setTelephoneCandidat(normalise(finalInfo.telephoneCandidat()));
+                c.setFormations(toJson(finalInfo.formations()));
+                c.setExperiences(toJson(finalInfo.experiences()));
                 c.setScoreMatching(finalScore);
                 c.setPointsForts(toJson(finalEval.pointsForts()));
                 c.setPointsManquants(toJson(finalEval.pointsManquants()));
@@ -299,11 +303,13 @@ public class CvPipelineService {
     }
 
     /**
-     * Sérialise une List<String> en JSON pour stockage en colonne TEXT.
-     * {@code CandidatureMapper.parseJsonList()} désérialisera ce JSON à la lecture.
+     * Sérialise une liste en JSON pour stockage en colonne TEXT.
+     * Couvre aussi bien les List&lt;String&gt; (pointsForts, questionsEntretien…)
+     * que les listes de records imbriqués (formations, expériences).
+     * {@code CandidatureMapper} désérialisera ce JSON à la lecture.
      * Retourne "[]" en cas d'erreur ou de liste null/vide — jamais null en base.
      */
-    private String toJson(List<String> list) {
+    private String toJson(List<?> list) {
         if (list == null || list.isEmpty()) return "[]";
         try {
             return objectMapper.writeValueAsString(list);
