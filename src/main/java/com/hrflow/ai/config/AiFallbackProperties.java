@@ -32,7 +32,15 @@ import java.util.List;
 @ConfigurationProperties(prefix = "app.ai")
 public record AiFallbackProperties(
         List<AiProviderProperties> providers,
-        CompanyProfile company
+        CompanyProfile company,
+        /**
+         * Active le logging détaillé des requêtes ET réponses LLM pour TOUS les
+         * providers ({@code logRequests} / {@code logResponses} sur le builder
+         * OpenAI). Désactivé par défaut : ces logs contiennent le contenu intégral
+         * des CV (nom, email, téléphone, parcours), donc des données personnelles
+         * → activer uniquement en debug local, JAMAIS en prod (RGPD).
+         */
+        boolean debugLogs
 ) {
 
     public AiFallbackProperties {
@@ -44,6 +52,8 @@ public record AiFallbackProperties(
             throw new IllegalStateException(
                     "Company profile must be configured under 'app.ai.company'");
         }
+        // debugLogs est un boolean : Spring lui donne false par défaut si absent
+        // de la config — on le garde tel quel (safe-by-default).
     }
 
     /** Returns only the enabled providers, in declaration order. */
