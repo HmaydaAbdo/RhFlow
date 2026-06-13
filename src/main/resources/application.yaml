@@ -202,6 +202,15 @@ app:
 
 
   # ─────────────────────────────────────────────────────────────────────────────
+  # Ingest endpoint (workflow n8n IMAP → POST /ingest/cv).
+  # Clé partagée présentée par n8n dans le header X-Ingest-Key. Pas de défaut :
+  # endpoint en fail-secure si la variable est absente ou vide.
+  # Générer une clé : openssl rand -hex 32
+  # ─────────────────────────────────────────────────────────────────────────────
+  ingest:
+    api-key: ${INGEST_API_KEY:}
+
+  # ─────────────────────────────────────────────────────────────────────────────
   # JWT : le secret DOIT être fourni via la variable d'environnement APP_JWT_SECRET.
   # Aucun défaut n'est provisionné pour des raisons de sécurité (empêche qu'un
   # déploiement oublié démarre avec un secret public connu).

@@ -1,9 +1,12 @@
 // src/main/java/com/hrflow/security/config/SecurityConfig.java
 package com.hrflow.security.config;
 
+import com.hrflow.ingestion.config.IngestApiKeyFilter;
+import com.hrflow.ingestion.config.IngestProperties;
 import com.hrflow.security.services.UserDetailsServiceImpl;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -26,6 +29,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -40,9 +44,11 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@EnableConfigurationProperties(IngestProperties.class)
 public class SecurityConfig {
 
     private final UserDetailsServiceImpl userDetailsService;
+    private final IngestApiKeyFilter     ingestApiKeyFilter;
 
     @Value("${app.jwt.secret}")
     private String secretKey;
@@ -50,8 +56,10 @@ public class SecurityConfig {
     @Value("${app.cors.allowed-origins:http://localhost:4200}")
     private String allowedOrigins;
 
-    public SecurityConfig(UserDetailsServiceImpl userDetailsService) {
+    public SecurityConfig(UserDetailsServiceImpl userDetailsService,
+                          IngestApiKeyFilter ingestApiKeyFilter) {
         this.userDetailsService = userDetailsService;
+        this.ingestApiKeyFilter = ingestApiKeyFilter;
     }
 
     @Bean
@@ -71,12 +79,18 @@ public class SecurityConfig {
                         .requestMatchers("/auth/login", "/auth/refresh").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
 
+                        // ---- Endpoint technique ingest (n8n) : auth via X-Ingest-Key (IngestApiKeyFilter).
+                        //      Le filtre pose une authority synthétique 'INGEST' ; l'endpoint exige hasAuthority('INGEST').
+                        .requestMatchers("/ingest/cv").permitAll()
+
                         // ---- Fallback : toute autre ressource nécessite authentification.
                         //      Les autorisations fines sont posées via @PreAuthorize au niveau controller.
                         .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 ->
                         oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
+                // Tourne avant le filtre d'authentication ; n'agit que sur /ingest/cv (cf. shouldNotFilter).
+                .addFilterBefore(ingestApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
