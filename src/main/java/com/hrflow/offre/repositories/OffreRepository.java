@@ -16,6 +16,4 @@ public interface OffreRepository extends JpaRepository<Offre, Long> {
         WHERE pr.id = :projetId
     """)
     Optional<Offre> findByProjetRecrutementId(@Param("projetId") Long projetId);
-
-    boolean existsByProjetRecrutementId(Long projetId);
 }

@@ -1,7 +1,6 @@
 package com.hrflow.projetrecrutement.repositories;
 
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
-import com.hrflow.projetrecrutement.model.StatutProjet;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -37,8 +36,6 @@ public interface ProjetRecrutementRepository
 
     /** Vérifie l'unicité de l'objet candidature en excluant le projet en cours de modification. */
     boolean existsByObjetCandidatureIgnoreCaseAndIdNot(String objetCandidature, Long id);
-
-    long countByStatut(StatutProjet statut);
 
     @Query("""
         SELECT p FROM ProjetRecrutement p

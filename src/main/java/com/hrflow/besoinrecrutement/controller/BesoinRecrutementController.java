@@ -3,12 +3,16 @@ package com.hrflow.besoinrecrutement.controller;
 import com.hrflow.besoinrecrutement.dto.*;
 import com.hrflow.besoinrecrutement.model.PrioriteBesoin;
 import com.hrflow.besoinrecrutement.model.StatutBesoin;
+import com.hrflow.besoinrecrutement.service.BesoinPdfExportService;
 import com.hrflow.besoinrecrutement.service.BesoinRecrutementService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -18,9 +22,12 @@ import org.springframework.web.bind.annotation.*;
 public class BesoinRecrutementController {
 
     private final BesoinRecrutementService besoinService;
+    private final BesoinPdfExportService   pdfExportService;
 
-    public BesoinRecrutementController(BesoinRecrutementService besoinService) {
-        this.besoinService = besoinService;
+    public BesoinRecrutementController(BesoinRecrutementService besoinService,
+                                       BesoinPdfExportService pdfExportService) {
+        this.besoinService    = besoinService;
+        this.pdfExportService = pdfExportService;
     }
 
     /**
@@ -104,6 +111,31 @@ public class BesoinRecrutementController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         besoinService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * POST /besoins-recrutement/{id}/export-pdf
+     * Génère la « Note de présentation à la DG » avec 3 signatures (DRH, DG, Directeur).
+     * Accès : ADMIN / DRH uniquement. Disponible quel que soit le statut du besoin
+     * (EN_COURS, ACCEPTE, REFUSE, ARCHIVE) — le document peut être ré-généré pour archive.
+     */
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DRH')")
+    @PostMapping("/{id}/export-pdf")
+    public ResponseEntity<byte[]> exportPdf(
+            @PathVariable Long id,
+            @RequestBody BesoinPdfExportRequest request) {
+
+        byte[] pdf = pdfExportService.generate(id, request);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_PDF);
+        headers.setContentDisposition(
+                ContentDisposition.attachment()
+                        .filename("besoin-recrutement-" + id + ".pdf")
+                        .build());
+        headers.setContentLength(pdf.length);
+
+        return ResponseEntity.ok().headers(headers).body(pdf);
     }
 
 }

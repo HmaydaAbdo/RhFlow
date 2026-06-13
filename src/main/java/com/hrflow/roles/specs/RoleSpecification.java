@@ -10,13 +10,4 @@ public class RoleSpecification {
                 keyword == null || keyword.isBlank() ? cb.conjunction()
                         : cb.like(cb.lower(root.get("roleName")), "%" + keyword.toLowerCase() + "%");
     }
-
-    public static Specification<Role> roleNameEquals(String roleName) {
-        return (root, query, cb) ->
-                roleName == null
-                        ? cb.conjunction()
-                        : cb.equal(cb.lower(root.get("roleName")), roleName.toLowerCase());
-    }
-
-
 }

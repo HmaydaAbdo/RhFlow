@@ -36,14 +36,6 @@ public class FicheDePosteController {
         return ResponseEntity.ok(ficheDePosteService.search(search, pageable));
     }
 
-    @GetMapping("/par-direction/{directionId}")
-    public ResponseEntity<Page<FicheDePosteSummaryResponse>> findByDirection(
-            @PathVariable Long directionId,
-            @PageableDefault(size = 20, sort = "intitulePoste") Pageable pageable) {
-
-        return ResponseEntity.ok(ficheDePosteService.findByDirection(directionId, pageable));
-    }
-
     @GetMapping("/{id}")
     public ResponseEntity<FicheDePosteResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(ficheDePosteService.findById(id));

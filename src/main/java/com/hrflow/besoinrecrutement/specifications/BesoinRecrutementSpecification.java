@@ -80,11 +80,6 @@ public final class BesoinRecrutementSpecification {
         };
     }
 
-    /** @deprecated Remplacé par {@link #belongsToUser(Long)} */
-    public static Specification<BesoinRecrutement> belongsToDirecteur(Long directeurId) {
-        return belongsToUser(directeurId);
-    }
-
     public static Specification<BesoinRecrutement> hasEncours(Boolean encours) {
         return (root, query, cb) -> {
             if (encours == null) return cb.conjunction();

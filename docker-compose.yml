@@ -54,6 +54,7 @@ services:
       - "5432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro   # ← add this
     networks:
       - rh-network
     healthcheck:
@@ -152,4 +153,29 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s   # docling-serve charge ses modèles IA au démarrage (~60–90 s)
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: rh-erp-n8n
+    restart: unless-stopped
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${N8N_DB:-n8n_db}
+      DB_POSTGRESDB_USER: ${DB_USERNAME:-rh_admin}
+      DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY must be set in .env}
+      GENERIC_TIMEZONE: ${TZ:-Africa/Casablanca}
+    ports:
+      - "127.0.0.1:5678:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data/n8n:/home/node/.n8n
+    networks:
+      - rh-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 

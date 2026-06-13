@@ -1,14 +1,13 @@
-package com.hrflow.projetrecrutement.service;
+package com.hrflow.besoinrecrutement.service;
 
 import com.hrflow.ai.config.AiFallbackProperties;
+import com.hrflow.besoinrecrutement.dto.BesoinPdfExportRequest;
+import com.hrflow.besoinrecrutement.exception.BesoinRecrutementNotFoundException;
 import com.hrflow.besoinrecrutement.model.BesoinRecrutement;
 import com.hrflow.besoinrecrutement.model.PrioriteBesoin;
+import com.hrflow.besoinrecrutement.repositories.BesoinRecrutementRepository;
 import com.hrflow.fichedeposte.model.FicheDePoste;
 import com.hrflow.fichedeposte.model.NiveauEtudes;
-import com.hrflow.projetrecrutement.dto.ProjetPdfExportRequest;
-import com.hrflow.projetrecrutement.exception.ProjetRecrutementNotFoundException;
-import com.hrflow.projetrecrutement.model.ProjetRecrutement;
-import com.hrflow.projetrecrutement.repositories.ProjetRecrutementRepository;
 import com.hrflow.storage.service.MinioService;
 import com.hrflow.users.entities.User;
 import com.hrflow.users.repositories.UserRepository;
@@ -27,30 +26,34 @@ import java.util.Base64;
 import java.util.Locale;
 
 /**
- * Génère un document PDF narratif (Note de présentation) pour un projet de recrutement,
- * à destination de la Direction Générale.
+ * Génère un document PDF narratif (Note de présentation) pour un besoin de
+ * recrutement, à destination de la Direction Générale pour validation.
+ *
+ * <p>Document signé par DRH + DG + Directeur (initiateur du besoin).
+ * Sémantiquement, le PDF matérialise la demande qui sera approuvée — donc
+ * généré sur le besoin (et non sur le projet créé après acceptation).
  */
 @Service
-public class ProjetPdfExportService {
+public class BesoinPdfExportService {
 
-    private static final Logger log = LoggerFactory.getLogger(ProjetPdfExportService.class);
+    private static final Logger log = LoggerFactory.getLogger(BesoinPdfExportService.class);
 
     private static final DateTimeFormatter DATE_FR =
             DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.FRENCH);
 
-    private final ProjetRecrutementRepository projetRepository;
+    private final BesoinRecrutementRepository besoinRepository;
     private final AiFallbackProperties        aiProperties;
     private final TemplateEngine              templateEngine;
     private final MinioService                minioService;
     private final UserRepository              userRepository;
 
-    public ProjetPdfExportService(
-            ProjetRecrutementRepository projetRepository,
+    public BesoinPdfExportService(
+            BesoinRecrutementRepository besoinRepository,
             AiFallbackProperties aiProperties,
             TemplateEngine templateEngine,
             MinioService minioService,
             UserRepository userRepository) {
-        this.projetRepository = projetRepository;
+        this.besoinRepository = besoinRepository;
         this.aiProperties     = aiProperties;
         this.templateEngine   = templateEngine;
         this.minioService     = minioService;
@@ -60,34 +63,33 @@ public class ProjetPdfExportService {
     // ── Public API ────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public byte[] generate(Long projetId, ProjetPdfExportRequest request) {
-        ProjetRecrutement projet = projetRepository.findWithDetailsById(projetId)
-                .orElseThrow(() -> new ProjetRecrutementNotFoundException(projetId));
+    public byte[] generate(Long besoinId, BesoinPdfExportRequest request) {
+        BesoinRecrutement besoin = besoinRepository.findWithDetailsById(besoinId)
+                .orElseThrow(() -> new BesoinRecrutementNotFoundException(besoinId));
 
-        String html = renderTemplate(projet, request);
+        String html = renderTemplate(besoin, request);
         return convertToPdf(html);
     }
 
     // ── Template rendering ────────────────────────────────────────────────────
 
-    private String renderTemplate(ProjetRecrutement projet, ProjetPdfExportRequest request) {
-        BesoinRecrutement besoin    = projet.getBesoinRecrutement();
-        FicheDePoste      fiche     = projet.getFicheDePoste();
-        AiFallbackProperties.CompanyProfile company = aiProperties.company();
+    private String renderTemplate(BesoinRecrutement besoin, BesoinPdfExportRequest request) {
+        FicheDePoste                          fiche   = besoin.getFicheDePoste();
+        AiFallbackProperties.CompanyProfile   company = aiProperties.company();
 
         Context ctx = new Context(Locale.FRENCH);
 
-        ctx.setVariable("company",   company);
-        ctx.setVariable("projet",    projet);
-        ctx.setVariable("besoin",    besoin);
+        ctx.setVariable("company",      company);
+        ctx.setVariable("besoin",       besoin);
         ctx.setVariable("ficheDePoste", fiche);
-        ctx.setVariable("fields",    request);
-        ctx.setVariable("generatedAt", LocalDate.now().format(DATE_FR));
+        ctx.setVariable("fields",       request);
+        ctx.setVariable("generatedAt",  LocalDate.now().format(DATE_FR));
+        ctx.setVariable("besoinRef",    "BES-" + besoin.getId());
 
         // Paragraphe d'introduction
         ctx.setVariable("introParagraph", buildIntroParagraph(fiche, request));
 
-        // Variables pré-calculées pour le template (évite la logique enum dans Thymeleaf)
+        // Variables pré-calculées (évite la logique enum dans Thymeleaf)
         ctx.setVariable("prioriteLibelle",
                 besoin.getPriorite() != null ? prioriteLibelle(besoin.getPriorite()) : null);
         ctx.setVariable("niveauEtudesLibelle",
@@ -100,18 +102,12 @@ public class ProjetPdfExportService {
         ctx.setVariable("dgSignature",        buildSignatureDto(findDgUser()));
         ctx.setVariable("directeurSignature", buildSignatureDto(besoin.getDirecteur()));
 
-        return templateEngine.process("projet-export", ctx);
+        return templateEngine.process("besoin-export", ctx);
     }
 
     // ── Intro paragraph ───────────────────────────────────────────────────────
 
-    /**
-     * Construit un court paragraphe introductif pour le document.
-     * Exemples : "La présente note soumet à l’approbation de la Direction Générale
-     * une demande de recrutement pour le poste de Développeur Java,
-     * initiée par la direction Informatique."
-     */
-    private String buildIntroParagraph(FicheDePoste fiche, ProjetPdfExportRequest request) {
+    private String buildIntroParagraph(FicheDePoste fiche, BesoinPdfExportRequest request) {
         StringBuilder sb = new StringBuilder();
         sb.append("La présente note soumet à l’approbation de la Direction Générale ");
         sb.append("une demande de recrutement pour le poste de ")
@@ -141,22 +137,14 @@ public class ProjetPdfExportService {
 
     // ── Signature helpers ─────────────────────────────────────────────────────
 
-    /** Retourne le DRH (unique) — avec ou sans signature configurée. */
     private User findDrhUser() {
         return userRepository.findFirstByRoleName("DRH").orElse(null);
     }
 
-    /** Retourne le DG (unique) — avec ou sans signature configurée. */
     private User findDgUser() {
         return userRepository.findFirstByRoleName("DG").orElse(null);
     }
 
-    /**
-     * Construit un DTO {dataUrl, fullName} pour le template.
-     * - Si l'utilisateur a une signature MinIO : dataUrl = "data:image/...;base64,..."
-     * - Sinon : dataUrl = null  →  le template affiche uniquement le nom + fonction.
-     * - Si user == null : retourne null  →  la cellule signature n'est pas rendue.
-     */
     private SignatureDto buildSignatureDto(User user) {
         if (user == null) return null;
 

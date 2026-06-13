@@ -97,24 +97,6 @@ public class DoclingService {
                     .tableMode(TableFormerMode.ACCURATE)
                     .build();
 
-    /**
-     * Options OCR forcé — retry pour PDFs scannés ou à couche texte corrompue/partielle.
-     *
-     * Docling ignore complètement la couche texte et reconnaît visuellement
-     * chaque page. Utilisé uniquement en retry quand le mode standard produit
-     * un Markdown trop court — jamais en premier appel sur un PDF numérique.
-     */
-    private static final ConvertDocumentOptions OPTIONS_FORCE_OCR =
-            ConvertDocumentOptions.builder()
-                    .doOcr(true)
-                    .forceOcr(true)
-                    .ocrEngine(OcrEngine.EASYOCR)
-                    .ocrLang("fr")
-                    .includeImages(false)
-                    .doTableStructure(true)
-                    .tableMode(TableFormerMode.ACCURATE)
-                    .build();
-
     private final DoclingServeApi doclingClient;
 
     public DoclingService(DoclingServeApi doclingClient) {
@@ -145,32 +127,6 @@ public class DoclingService {
     public String toMarkdown(String documentUrl, String filename) {
         log.debug("[Docling] conversion standard → fichier='{}', url='{}'", filename, documentUrl);
         return convert(documentUrl, filename, OPTIONS_STANDARD, "standard");
-    }
-
-    /**
-     * Convertit un document en Markdown avec OCR forcé sur toute la page.
-     *
-     * À utiliser en retry quand {@link #toMarkdown} retourne un résultat trop court.
-     * Docling ignore la couche texte, rend chaque page en image et applique EasyOCR.
-     * Typiquement 3–5× plus lent que le mode standard.
-     *
-     * Cas d'usage : PDF scanné, police exotique, couche texte corrompue/partielle.
-     *
-     * @param documentUrl URL présignée MinIO accessible par docling-serve
-     * @param filename    Nom du fichier (logs uniquement)
-     * @return Contenu Markdown extrait via OCR visuel
-     * @throws DoclingConversionException si docling-serve échoue ou Markdown vide
-     */
-    @CircuitBreaker(name = "docling")
-    @Retryable(
-        retryFor   = Exception.class,
-        noRetryFor = {CallNotPermittedException.class, DoclingConversionException.class},
-        maxAttempts = 2,
-        backoff     = @Backoff(delay = 3000, multiplier = 2, maxDelay = 10000)
-    )
-    public String toMarkdownWithForceOcr(String documentUrl, String filename) {
-        log.info("[Docling] conversion OCR forcé → fichier='{}'", filename);
-        return convert(documentUrl, filename, OPTIONS_FORCE_OCR, "force-ocr");
     }
 
     // ── Helper partagé ────────────────────────────────────────────────────────

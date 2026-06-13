@@ -56,7 +56,4 @@ public interface CandidatureRepository
         WHERE c.id = :id
         """)
     Optional<Candidature> findByIdWithProjet(@Param("id") Long id);
-
-    /** Nombre de CVs pour un projet — utilisé pour le badge UI sans charger les entités. */
-    long countByProjetRecrutementId(Long projetId);
 }

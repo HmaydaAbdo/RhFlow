@@ -116,7 +116,7 @@
       <td class="header-right">
         <div class="doc-meta">
           <span th:text="${generatedAt}">01 janvier 2025</span><br/>
-          Ref. : <span th:text="${projet.objetCandidature}">RC-2025-001</span>
+          Ref. : <span th:text="${besoinRef}">BES-001</span>
         </div>
       </td>
     </tr>
@@ -128,7 +128,7 @@
     <div class="doc-subtitle">
       Poste : <span th:text="${ficheDePoste.intitulePoste}">Intitulé du poste</span>
       <th:block th:if="${fields.contexte.nombrePostes}">
-        &#160;&#8212;&#160;<span th:text="${projet.nombrePostes}">1</span> poste(s)
+        &#160;&#8212;&#160;<span th:text="${besoin.nombrePostes}">1</span> poste(s)
       </th:block>
     </div>
   </div>
@@ -165,7 +165,7 @@
       </tr>
       <tr th:if="${fields.contexte.nombrePostes}">
         <td class="kv-label">Nombre de postes</td>
-        <td class="kv-value" th:text="${projet.nombrePostes}"></td>
+        <td class="kv-value" th:text="${besoin.nombrePostes}"></td>
       </tr>
       <tr th:if="${fields.contexte.dateSouhaitee and besoin.dateSouhaitee != null}">
         <td class="kv-label">Prise de fonction souhait&#233;e</td>

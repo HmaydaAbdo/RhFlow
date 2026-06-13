@@ -83,18 +83,6 @@ public class FicheDePosteService {
         return ficheDePosteMapper.toResponse(fiche);
     }
 
-    @Transactional(readOnly = true)
-    public Page<FicheDePosteSummaryResponse> findByDirection(Long directionId, Pageable pageable) {
-
-        if (!directionRepository.existsById(directionId)) {
-            throw new DirectionNotFoundException(directionId);
-        }
-
-        return ficheDePosteRepository
-                .findByDirectionId(directionId, pageable)
-                .map(ficheDePosteMapper::toSummary);
-    }
-
     // =====================================================================
     // CREATE / UPDATE / DELETE — réservés DRH / ADMIN (garanti par @PreAuthorize)
     // =====================================================================

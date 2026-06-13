@@ -18,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Arrays;
 import java.util.List;
 
 @Service
@@ -126,11 +125,4 @@ public class AuthenticationService {
         return jwtEncoder.encode(params).getTokenValue();
     }
 
-    /**
-     * Utilitaire pour convertir un claim string "a b c" en liste (utilisé par le converter).
-     */
-    public static List<String> splitClaim(String raw) {
-        if (raw == null || raw.isBlank()) return List.of();
-        return Arrays.stream(raw.trim().split("\\s+")).filter(s -> !s.isBlank()).toList();
-    }
 }
