@@ -74,47 +74,68 @@ public class CandidatureService {
         this.txWrite         = new TransactionTemplate(txManager);
     }
 
-    // ── Upload ──────────────────────────────────────────────────────────────────
+    // ── Upload manuel (UI) ──────────────────────────────────────────────────────
 
     /**
-     * Upload d'un CV pour un projet de recrutement.
+     * Upload d'un CV pour un projet de recrutement depuis l'UI (DRH/ADMIN/DIRECTEUR).
      *
-     * Pattern deux transactions réel (évite le self-invocation Spring AOP) :
+     * <p>Résout le projet par id et applique la garde d'ownership DIRECTEUR avant de
+     * déléguer la création à {@link #createCandidature(ProjetRecrutement, MultipartFile)}
+     * — qui contient la logique commune (persistance + MinIO + pipeline + rollback).
      *
-     *   txWrite.execute() → TX ouverte, candidature persistée, TX commitée, connexion libérée
-     *   [upload MinIO — aucune connexion DB tenue ici]
-     *   afterCommit (enregistré dans la TX) → pipeline.traiter() lancé en async
-     *
-     * TransactionTemplate contourne le proxy AOP : la frontière de transaction est
-     * définie programmatiquement, pas par annotation sur une méthode appelée via this.
-     */
-    /**
-     * Upload d'un CV pour un projet de recrutement.
-     *
-     * Ordre d'exécution intentionnel :
-     *   1. TX (courte) : valider projet + créer Candidature RECU → commit → connexion libérée
-     *   2. MinIO upload (hors TX) — si échec : suppression compensatoire en base
-     *   3. pipeline.traiter() déclenché APRÈS l'upload MinIO réussi
-     *
-     * Pourquoi le pipeline est déclenché après MinIO (et non via afterCommit) :
-     *   afterCommit() se déclenche quand la TX commit, AVANT que minioService.upload() soit appelé.
-     *   Le pipeline génèrerait une presigned URL d'un objet inexistant → Docling échouerait.
-     *   En déclenchant pipeline.traiter() après upload, l'objet est toujours présent.
+     * <p>Le flux MinIO + pipeline est documenté dans {@link #createCandidature}.
      */
     public CandidatureResponse upload(Long projetId, MultipartFile file) {
 
         validatePageCount(file);
 
-        // TX 1 : persistance candidature — connexion libérée à la sortie du lambda
-        // Le chemin MinIO est calculé ICI car il dépend de l'intitulé de la fiche de poste
-        // chargée dans cette même TX. On le lit via saved.getCheminMinio() après commit.
-        Candidature saved = txWrite.execute(status -> {
-
-            var projet = projetRepo.findWithDetailsById(projetId)
+        // TX courte : résolution du projet + check d'ownership DIRECTEUR.
+        // On charge le projet dans une TX dédiée pour libérer la connexion avant MinIO.
+        ProjetRecrutement projet = txWrite.execute(status -> {
+            var p = projetRepo.findWithDetailsById(projetId)
                     .orElseThrow(() -> new ProjetRecrutementNotFoundException(projetId));
+            enforceDirecteurOwnership(p);
+            return p;
+        });
 
-            enforceDirecteurOwnership(projet);
+        Candidature saved = createCandidature(projet, file);
+        return mapper.toResponse(saved);
+    }
 
+    // ── Création de candidature (commun upload manuel + ingest n8n) ─────────────
+
+    /**
+     * Crée une candidature à partir d'un projet de recrutement déjà résolu.
+     *
+     * <p>Méthode <b>publique</b> car appelée cross-package par {@code IngestionService}
+     * (flux n8n IMAP). Le caller a la responsabilité de :
+     * <ul>
+     *   <li>Avoir résolu le projet selon sa propre logique (id, objet, etc.).</li>
+     *   <li>Avoir validé les autorisations (ownership pour l'UI, authority pour l'ingest).</li>
+     *   <li>Avoir validé le fichier (page count, format) — typiquement via {@link #validatePageCount}.</li>
+     * </ul>
+     *
+     * <p>Ordre d'exécution intentionnel :
+     * <ol>
+     *   <li>TX (courte) : créer Candidature RECU → commit → connexion libérée.</li>
+     *   <li>MinIO upload (hors TX) — si échec : suppression compensatoire en base.</li>
+     *   <li>{@code pipeline.traiter()} déclenché APRÈS l'upload MinIO réussi.</li>
+     * </ol>
+     *
+     * <p>Pourquoi le pipeline est déclenché après MinIO (et non via afterCommit) :
+     * afterCommit() se déclenche quand la TX commit, AVANT que minioService.upload()
+     * soit appelé. Le pipeline génèrerait une presigned URL d'un objet inexistant →
+     * Docling échouerait. En déclenchant pipeline.traiter() après upload, l'objet
+     * est toujours présent côté MinIO.
+     *
+     * @param projet projet de recrutement déjà chargé (avec fiche de poste eagerly fetch)
+     * @param file   fichier CV à uploader
+     * @return l'entité Candidature persistée (le caller décide comment l'exposer / la lier)
+     */
+    public Candidature createCandidature(ProjetRecrutement projet, MultipartFile file) {
+
+        // TX 1 : persistance candidature — connexion libérée à la sortie du lambda
+        Candidature saved = txWrite.execute(status -> {
             String nomFichier  = safeFileName(file.getOriginalFilename());
             String typeFichier = file.getContentType() != null
                     ? file.getContentType() : "application/octet-stream";
@@ -138,14 +159,13 @@ public class CandidatureService {
             // Flush dans la TX : détecte tout conflit de contrainte DB avant l'upload MinIO
             candidatureRepo.flush();
             return c;
-            // Pas d'afterCommit ici — le pipeline est déclenché APRÈS l'upload MinIO
         });
 
         // TX commitée, connexion libérée — upload MinIO
         String objectPath = saved.getCheminMinio();
         try {
             minioService.upload(objectPath, file);
-            log.info("[Candidature] CV uploadé → {} (projet={})", objectPath, projetId);
+            log.info("[Candidature] CV uploadé → {} (projet={})", objectPath, projet.getId());
         } catch (RuntimeException e) {
             // MinIO a échoué — supprimer la candidature orpheline en base (rollback compensatoire)
             log.error("[Candidature] upload MinIO échoué pour candidature={} — rollback DB : {}",
@@ -157,7 +177,7 @@ public class CandidatureService {
         // Pipeline déclenché uniquement si MinIO a réussi — @Async, retourne immédiatement
         pipeline.traiter(saved.getId());
 
-        return mapper.toResponse(saved);
+        return saved;
     }
 
     // ── Liste ───────────────────────────────────────────────────────────────────
