@@ -289,7 +289,12 @@ public class CandidatureService {
 
     // ── Validation pages ────────────────────────────────────────────────────────
 
-    private void validatePageCount(MultipartFile file) {
+    /**
+     * Vérifie que le PDF/DOCX ne dépasse pas {@link #MAX_CV_PAGES} pages.
+     * Lève {@link IllegalArgumentException} si dépassement — le caller décide
+     * comment traduire (HTTP 400 pour l'UI, REJECTED record pour l'ingest n8n).
+     */
+    public void validatePageCount(MultipartFile file) {
         String filename = file.getOriginalFilename();
         if (filename == null || !filename.contains(".")) return;
         String ext = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
