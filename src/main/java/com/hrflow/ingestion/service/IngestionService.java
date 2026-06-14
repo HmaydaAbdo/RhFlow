@@ -7,7 +7,6 @@ import com.hrflow.ingestion.mapper.IngestionRecordMapper;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionRejectionReason;
 import com.hrflow.ingestion.model.IngestionSource;
-import com.hrflow.ingestion.model.IngestionStatus;
 import com.hrflow.ingestion.repositories.IngestionRecordRepository;
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
 import com.hrflow.projetrecrutement.model.StatutProjet;
@@ -20,7 +19,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
@@ -103,13 +101,13 @@ public class IngestionService {
         IngestionRecord record;
         try {
             record = txWrite.execute(status -> {
-                IngestionRecord r = new IngestionRecord();
-                r.setSource(source);
-                r.setExternalId(externalId);
-                r.setReferenceCode(blankToNull(referenceCode));
-                r.setRawMetadata(rawMetadata);
-                r.setNomFichier(file != null ? file.getOriginalFilename() : null);
-                r.setStatus(IngestionStatus.PENDING);
+                IngestionRecord r = IngestionRecord.createPending(
+                        source,
+                        externalId,
+                        blankToNull(referenceCode),
+                        file != null ? file.getOriginalFilename() : null,
+                        rawMetadata
+                );
                 return repo.saveAndFlush(r);
             });
         } catch (DataIntegrityViolationException e) {
@@ -186,13 +184,13 @@ public class IngestionService {
         // ── Phase 5 : Finaliser — IMPORTED + lien candidature ──────────────────
         final Candidature createdCandidature = candidature;  // effectively final pour le lambda
         IngestionRecord saved = txWrite.execute(status -> {
-            // Re-fetch dans la TX pour éviter les LazyInit + state stale
+            // Re-fetch dans la TX pour éviter les LazyInit + state stale.
             IngestionRecord r = repo.findById(record.getId())
                     .orElseThrow(() -> new IllegalStateException(
                             "IngestionRecord disparu en phase 5 : id=" + record.getId()));
-            r.setCandidature(createdCandidature);
-            r.setStatus(IngestionStatus.IMPORTED);
-            r.setProcessedAt(LocalDateTime.now());
+            // Méthode domaine : valide PENDING → IMPORTED + lie la candidature
+            // + pose processedAt. Aucun setter manuel.
+            r.markImported(createdCandidature);
             return repo.save(r);
         });
 
@@ -217,10 +215,7 @@ public class IngestionService {
             IngestionRecord r = repo.findById(record.getId())
                     .orElseThrow(() -> new IllegalStateException(
                             "IngestionRecord disparu lors du rejet : id=" + record.getId()));
-            r.setStatus(IngestionStatus.REJECTED);
-            r.setRejectionReason(reason);
-            r.setRejectionDetail(detail);
-            r.setProcessedAt(LocalDateTime.now());
+            r.reject(reason, detail);
             return repo.save(r);
         });
         return mapper.toResponse(saved);
@@ -235,9 +230,7 @@ public class IngestionService {
             IngestionRecord r = repo.findById(record.getId())
                     .orElseThrow(() -> new IllegalStateException(
                             "IngestionRecord disparu lors du markError : id=" + record.getId()));
-            r.setStatus(IngestionStatus.ERROR);
-            r.setRejectionDetail(detail);
-            r.setProcessedAt(LocalDateTime.now());
+            r.markError(detail);
             return repo.save(r);
         });
         return mapper.toResponse(saved);

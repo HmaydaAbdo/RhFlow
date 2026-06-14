@@ -181,6 +181,16 @@
             <artifactId>arconia-docling-spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- ========== BUCKET4J — Token bucket rate limiting (in-memory) ========== -->
+        <!-- Utilisé par IngestRateLimitFilter pour protéger /ingest/cv des floods.  -->
+        <!-- Backend in-memory : suffisant pour un backend single-instance. Pour      -->
+        <!-- multi-instance, basculer plus tard sur bucket4j-redis ou bucket4j-jcache.-->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>8.10.1</version>
+        </dependency>
+
 	</dependencies>
 
 	<build>

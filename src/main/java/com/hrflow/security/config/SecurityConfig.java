@@ -3,6 +3,7 @@ package com.hrflow.security.config;
 
 import com.hrflow.ingestion.config.IngestApiKeyFilter;
 import com.hrflow.ingestion.config.IngestProperties;
+import com.hrflow.ingestion.config.IngestRateLimitFilter;
 import com.hrflow.security.services.UserDetailsServiceImpl;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +50,7 @@ public class SecurityConfig {
 
     private final UserDetailsServiceImpl userDetailsService;
     private final IngestApiKeyFilter     ingestApiKeyFilter;
+    private final IngestRateLimitFilter  ingestRateLimitFilter;
 
     @Value("${app.jwt.secret}")
     private String secretKey;
@@ -57,9 +59,11 @@ public class SecurityConfig {
     private String allowedOrigins;
 
     public SecurityConfig(UserDetailsServiceImpl userDetailsService,
-                          IngestApiKeyFilter ingestApiKeyFilter) {
-        this.userDetailsService = userDetailsService;
-        this.ingestApiKeyFilter = ingestApiKeyFilter;
+                          IngestApiKeyFilter ingestApiKeyFilter,
+                          IngestRateLimitFilter ingestRateLimitFilter) {
+        this.userDetailsService    = userDetailsService;
+        this.ingestApiKeyFilter    = ingestApiKeyFilter;
+        this.ingestRateLimitFilter = ingestRateLimitFilter;
     }
 
     @Bean
@@ -89,8 +93,12 @@ public class SecurityConfig {
                 )
                 .oauth2ResourceServer(oauth2 ->
                         oauth2.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
-                // Tourne avant le filtre d'authentication ; n'agit que sur /ingest/cv (cf. shouldNotFilter).
-                .addFilterBefore(ingestApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
+                // Ordre des filtres sur /ingest/cv (du plus haut au plus bas) :
+                //   1. IngestRateLimitFilter   — rejette les floods avant tout (économise CPU)
+                //   2. IngestApiKeyFilter      — valide X-Ingest-Key + pose authority INGEST
+                //   3. (chain Spring Security standard)
+                .addFilterBefore(ingestApiKeyFilter,    UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(ingestRateLimitFilter, IngestApiKeyFilter.class)
                 .build();
     }
 

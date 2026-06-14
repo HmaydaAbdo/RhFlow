@@ -12,7 +12,6 @@ import com.hrflow.candidature.specifications.CandidatureSpecification;
 import com.hrflow.ingestion.config.IngestProperties;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionSource;
-import com.hrflow.ingestion.model.IngestionStatus;
 import com.hrflow.ingestion.repositories.IngestionRecordRepository;
 import com.hrflow.projetrecrutement.exception.ProjetRecrutementNotFoundException;
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
@@ -39,7 +38,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -147,12 +145,13 @@ public class CandidatureService {
         String rawMeta    = "{\"uploadedBy\":\"%s\"}".formatted(userEmail != null ? userEmail : "");
 
         return txWrite.execute(status -> {
-            IngestionRecord r = new IngestionRecord();
-            r.setSource(IngestionSource.MANUAL_UI);
-            r.setExternalId(externalId);
-            r.setNomFichier(file.getOriginalFilename());
-            r.setRawMetadata(rawMeta);
-            r.setStatus(IngestionStatus.PENDING);
+            IngestionRecord r = IngestionRecord.createPending(
+                    IngestionSource.MANUAL_UI,
+                    externalId,
+                    null,                         // pas de code de référence pour un upload manuel
+                    file.getOriginalFilename(),
+                    rawMeta
+            );
             return ingestionRepo.saveAndFlush(r);
         });
     }
@@ -163,9 +162,7 @@ public class CandidatureService {
             IngestionRecord r = ingestionRepo.findById(record.getId())
                     .orElseThrow(() -> new IllegalStateException(
                             "IngestionRecord disparu après création de candidature : id=" + record.getId()));
-            r.setCandidature(candidature);
-            r.setStatus(IngestionStatus.IMPORTED);
-            r.setProcessedAt(LocalDateTime.now());
+            r.markImported(candidature);
             return ingestionRepo.save(r);
         });
     }
@@ -177,9 +174,7 @@ public class CandidatureService {
                 IngestionRecord r = ingestionRepo.findById(record.getId())
                         .orElseThrow(() -> new IllegalStateException(
                                 "IngestionRecord disparu lors de markError : id=" + record.getId()));
-                r.setStatus(IngestionStatus.ERROR);
-                r.setRejectionDetail("Erreur upload manuel : " + (detail != null ? detail : "(inconnue)"));
-                r.setProcessedAt(LocalDateTime.now());
+                r.markError("Erreur upload manuel : " + (detail != null ? detail : "(inconnue)"));
                 return ingestionRepo.save(r);
             });
         } catch (Exception ex) {

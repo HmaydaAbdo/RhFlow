@@ -220,6 +220,14 @@ app:
     api-key:       ${INGEST_API_KEY:}
     max-file-size: ${INGEST_MAX_FILE_SIZE:10MB}
 
+    # Token bucket Bucket4j sur POST /ingest/cv :
+    # - capacity          : burst max (réservoir plein → on peut envoyer ça d'un coup)
+    # - refill-per-minute : taux de réinjection des jetons (débit moyen autorisé)
+    # Au-delà → 429 Too Many Requests + Retry-After (secondes) pour back-pressure.
+    rate-limit:
+      capacity:          ${INGEST_RATE_CAPACITY:100}
+      refill-per-minute: ${INGEST_RATE_REFILL:100}
+
   # ─────────────────────────────────────────────────────────────────────────────
   # JWT : le secret DOIT être fourni via la variable d'environnement APP_JWT_SECRET.
   # Aucun défaut n'est provisionné pour des raisons de sécurité (empêche qu'un

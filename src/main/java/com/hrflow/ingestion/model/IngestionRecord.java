@@ -2,22 +2,57 @@ package com.hrflow.ingestion.model;
 
 import com.hrflow.candidature.model.Candidature;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Check;
+import org.hibernate.annotations.Checks;
 
 import java.time.LocalDateTime;
 
 /**
  * Trace d'audit d'un CV arrivant de l'extérieur (mailbox n8n aujourd'hui,
- * futurs canaux ensuite). Existe AVANT la {@link Candidature} et survit à
- * elle — c'est le log unique de tout ce qui rentre, succès comme rejet.
+ * futurs canaux ensuite) OU d'un upload manuel UI. Existe AVANT la
+ * {@link Candidature} et survit à elle — c'est le journal d'entrée unique de
+ * tout CV qui rentre dans le système, succès comme rejet.
  *
- * <p>Invariants :
+ * <h2>Cycle de vie</h2>
+ * <pre>
+ *   PENDING ──→ IMPORTED   (markImported + lien candidature)
+ *          ╲──→ REJECTED   (reject + raison métier)
+ *          ╲──→ ERROR      (markError + détail technique)
+ * </pre>
+ *
+ * <p>Une fois posé en {@code IMPORTED}/{@code REJECTED}/{@code ERROR}, le
+ * record est terminal — aucune transition arrière. Toute tentative de
+ * transition depuis un état non-PENDING lève une {@link IllegalStateException}.
+ *
+ * <h2>Encapsulation des invariants</h2>
+ *
+ * <p>L'entité est <strong>encapsulée</strong> : pas de setters publics pour
+ * les champs sensibles (status, rejectionReason, candidature, processedAt).
+ * Les transitions passent OBLIGATOIREMENT par :
  * <ul>
- *   <li>{@code (externalId, source)} est UNIQUE → idempotence forte :
- *       le même email (Message-ID) ne peut être ingéré qu'une seule fois.</li>
- *   <li>{@code receivedAt} immuable — défini par {@link #prePersist()}.</li>
- *   <li>{@code candidature} est NULL tant que {@code status != IMPORTED}.</li>
- *   <li>{@code rejectionReason} est NULL tant que {@code status != REJECTED}.</li>
+ *   <li>{@link #createPending} pour la création (factory)</li>
+ *   <li>{@link #markImported(Candidature)} pour le succès</li>
+ *   <li>{@link #reject(IngestionRejectionReason, String)} pour les rejets métier</li>
+ *   <li>{@link #markError(String)} pour les erreurs techniques</li>
  * </ul>
+ *
+ * <p>Hibernate accède aux champs directement (field-access, parce que
+ * {@code @Id} est sur le champ) — pas besoin de setters pour le mapping ORM.
+ *
+ * <h2>Invariants protégés au niveau DB (@Check)</h2>
+ *
+ * <p>Filet de sécurité indépendant du code Java :
+ * <ol>
+ *   <li>{@code status=IMPORTED ⇒ candidature_id IS NOT NULL}</li>
+ *   <li>{@code status=REJECTED ⇒ rejection_reason IS NOT NULL}</li>
+ *   <li>{@code status ≠ PENDING ⇒ processed_at IS NOT NULL}</li>
+ * </ol>
+ *
+ * <p>⚠ Avec {@code ddl-auto: update}, les nouvelles contraintes
+ * {@code @Check} ne sont PAS appliquées automatiquement sur une table
+ * existante. Pour les activer : drop+recreate la table (acceptable en dev)
+ * OU exécuter manuellement les {@code ALTER TABLE ADD CONSTRAINT} listés
+ * dans le commit message de L52.
  */
 @Entity
 @Table(
@@ -29,12 +64,22 @@ import java.time.LocalDateTime;
         )
     },
     indexes = {
-        @Index(name = "idx_ingestion_status",       columnList = "status"),
-        @Index(name = "idx_ingestion_received_at",  columnList = "received_at"),
-        @Index(name = "idx_ingestion_candidature",  columnList = "candidature_id"),
+        @Index(name = "idx_ingestion_status",        columnList = "status"),
+        @Index(name = "idx_ingestion_received_at",   columnList = "received_at"),
+        @Index(name = "idx_ingestion_candidature",   columnList = "candidature_id"),
         @Index(name = "idx_ingestion_source_status", columnList = "source,status")
     }
 )
+// Contraintes DB d'invariant — filet en cas de bug applicatif.
+// @Checks (conteneur) pour compatibilité Hibernate 6.x toutes versions.
+@Checks({
+    @Check(name = "chk_imported_has_candidature",
+           constraints = "status <> 'IMPORTED' OR candidature_id IS NOT NULL"),
+    @Check(name = "chk_rejected_has_reason",
+           constraints = "status <> 'REJECTED' OR rejection_reason IS NOT NULL"),
+    @Check(name = "chk_terminal_has_processed_at",
+           constraints = "status = 'PENDING' OR processed_at IS NOT NULL")
+})
 public class IngestionRecord {
 
     @Id
@@ -47,28 +92,17 @@ public class IngestionRecord {
     @Column(name = "source", nullable = false, length = 20)
     private IngestionSource source;
 
-    /**
-     * Identifiant fourni par la source — pour {@code EMAIL} c'est le header
-     * {@code Message-ID} (universellement unique). Combiné avec {@code source}
-     * dans une contrainte UNIQUE → garantit qu'on ne traite jamais 2 fois.
-     */
     @Column(name = "external_id", nullable = false, length = 512)
     private String externalId;
 
     // ── Données métier ───────────────────────────────────────────────────────────
 
-    /** Code de référence extrait par regex du sujet, ex. {@code BES-001}. */
     @Column(name = "reference_code", length = 64)
     private String referenceCode;
 
-    /** Nom du fichier de la 1ʳᵉ pièce jointe PDF/DOCX (avant slugify). */
     @Column(name = "nom_fichier", length = 255)
     private String nomFichier;
 
-    /**
-     * Méta-données brutes de l'email en JSON (expéditeur, sujet complet, headers
-     * pertinents). Conservées pour audit et debugging — pas requêtées.
-     */
     @Column(name = "raw_metadata", columnDefinition = "TEXT")
     private String rawMetadata;
 
@@ -82,15 +116,9 @@ public class IngestionRecord {
     @Column(name = "rejection_reason", length = 50)
     private IngestionRejectionReason rejectionReason;
 
-    /** Texte libre complétant {@code rejectionReason} (ex. code attendu vs reçu). */
     @Column(name = "rejection_detail", columnDefinition = "TEXT")
     private String rejectionDetail;
 
-    /**
-     * Candidature créée si {@code status == IMPORTED}. {@code ON DELETE SET NULL}
-     * non requis : la candidature ne devrait pas être supprimée tant qu'un record
-     * la référence — mais on garde la FK nullable pour permettre l'archivage.
-     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "candidature_id")
     private Candidature candidature;
@@ -100,7 +128,6 @@ public class IngestionRecord {
     @Column(name = "received_at", nullable = false, updatable = false)
     private LocalDateTime receivedAt;
 
-    /** Renseigné à la dernière transition de statut (IMPORTED / REJECTED / ERROR). */
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
 
@@ -108,50 +135,115 @@ public class IngestionRecord {
     @Column(nullable = false)
     private Integer version;
 
-    @PrePersist
-    void prePersist() {
-        this.receivedAt = LocalDateTime.now();
-        if (this.status == null) this.status = IngestionStatus.PENDING;
+    // ── Construction ─────────────────────────────────────────────────────────────
+
+    /** Required by JPA. Use {@link #createPending} for new instances. */
+    protected IngestionRecord() {}
+
+    /**
+     * Crée un record dans l'état initial {@link IngestionStatus#PENDING}.
+     * {@code receivedAt} sera renseigné par {@link #prePersist()} au flush.
+     */
+    public static IngestionRecord createPending(IngestionSource source,
+                                                String          externalId,
+                                                String          referenceCode,
+                                                String          nomFichier,
+                                                String          rawMetadata) {
+        if (source == null) {
+            throw new IllegalArgumentException("source est obligatoire");
+        }
+        if (externalId == null || externalId.isBlank()) {
+            throw new IllegalArgumentException("externalId est obligatoire");
+        }
+        IngestionRecord r = new IngestionRecord();
+        r.source        = source;
+        r.externalId    = externalId;
+        r.referenceCode = referenceCode;
+        r.nomFichier    = nomFichier;
+        r.rawMetadata   = rawMetadata;
+        r.status        = IngestionStatus.PENDING;
+        return r;
     }
 
-    // ── Getters & Setters ────────────────────────────────────────────────────────
+    @PrePersist
+    void prePersist() {
+        if (this.receivedAt == null) this.receivedAt = LocalDateTime.now();
+        if (this.status     == null) this.status     = IngestionStatus.PENDING;
+    }
 
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    // ── Transitions d'état (domaine) ─────────────────────────────────────────────
 
-    public IngestionSource getSource() { return source; }
-    public void setSource(IngestionSource source) { this.source = source; }
+    /**
+     * Marque le record comme importé avec succès et lie la candidature créée.
+     *
+     * @throws IllegalStateException si {@code status != PENDING}
+     * @throws IllegalArgumentException si {@code candidature == null}
+     */
+    public void markImported(Candidature candidature) {
+        requirePending();
+        if (candidature == null) {
+            throw new IllegalArgumentException(
+                    "candidature requise pour markImported (record id=" + id + ")");
+        }
+        this.candidature   = candidature;
+        this.status        = IngestionStatus.IMPORTED;
+        this.processedAt   = LocalDateTime.now();
+    }
 
-    public String getExternalId() { return externalId; }
-    public void setExternalId(String externalId) { this.externalId = externalId; }
+    /**
+     * Marque le record comme rejeté pour cause métier (référence inconnue,
+     * projet fermé, fichier invalide, doublon email…).
+     *
+     * @throws IllegalStateException si {@code status != PENDING}
+     * @throws IllegalArgumentException si {@code reason == null}
+     */
+    public void reject(IngestionRejectionReason reason, String detail) {
+        requirePending();
+        if (reason == null) {
+            throw new IllegalArgumentException(
+                    "reason requise pour reject (record id=" + id + ")");
+        }
+        this.rejectionReason = reason;
+        this.rejectionDetail = detail;
+        this.status          = IngestionStatus.REJECTED;
+        this.processedAt     = LocalDateTime.now();
+    }
 
-    public String getReferenceCode() { return referenceCode; }
-    public void setReferenceCode(String referenceCode) { this.referenceCode = referenceCode; }
+    /**
+     * Marque le record en erreur technique (MinIO down, etc.) — peut être
+     * retraité plus tard. {@code rejectionDetail} sert ici à stocker le message
+     * d'erreur (réutilisation cohérente du champ).
+     *
+     * @throws IllegalStateException si {@code status != PENDING}
+     */
+    public void markError(String detail) {
+        requirePending();
+        this.rejectionDetail = detail;
+        this.status          = IngestionStatus.ERROR;
+        this.processedAt     = LocalDateTime.now();
+    }
 
-    public String getNomFichier() { return nomFichier; }
-    public void setNomFichier(String nomFichier) { this.nomFichier = nomFichier; }
+    private void requirePending() {
+        if (this.status != IngestionStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Transition impossible — record id=%d est en état %s, attendu PENDING."
+                            .formatted(id, status));
+        }
+    }
 
-    public String getRawMetadata() { return rawMetadata; }
-    public void setRawMetadata(String rawMetadata) { this.rawMetadata = rawMetadata; }
+    // ── Getters (read-only) ──────────────────────────────────────────────────────
 
-    public IngestionStatus getStatus() { return status; }
-    public void setStatus(IngestionStatus status) { this.status = status; }
-
+    public Long                     getId()              { return id; }
+    public IngestionSource          getSource()          { return source; }
+    public String                   getExternalId()      { return externalId; }
+    public String                   getReferenceCode()   { return referenceCode; }
+    public String                   getNomFichier()      { return nomFichier; }
+    public String                   getRawMetadata()     { return rawMetadata; }
+    public IngestionStatus          getStatus()          { return status; }
     public IngestionRejectionReason getRejectionReason() { return rejectionReason; }
-    public void setRejectionReason(IngestionRejectionReason rejectionReason) { this.rejectionReason = rejectionReason; }
-
-    public String getRejectionDetail() { return rejectionDetail; }
-    public void setRejectionDetail(String rejectionDetail) { this.rejectionDetail = rejectionDetail; }
-
-    public Candidature getCandidature() { return candidature; }
-    public void setCandidature(Candidature candidature) { this.candidature = candidature; }
-
-    public LocalDateTime getReceivedAt() { return receivedAt; }
-    public void setReceivedAt(LocalDateTime receivedAt) { this.receivedAt = receivedAt; }
-
-    public LocalDateTime getProcessedAt() { return processedAt; }
-    public void setProcessedAt(LocalDateTime processedAt) { this.processedAt = processedAt; }
-
-    public Integer getVersion() { return version; }
-    public void setVersion(Integer version) { this.version = version; }
+    public String                   getRejectionDetail() { return rejectionDetail; }
+    public Candidature              getCandidature()     { return candidature; }
+    public LocalDateTime            getReceivedAt()      { return receivedAt; }
+    public LocalDateTime            getProcessedAt()     { return processedAt; }
+    public Integer                  getVersion()         { return version; }
 }
