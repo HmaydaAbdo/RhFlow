@@ -3,12 +3,17 @@ package com.hrflow.ingestion.model;
 /**
  * Source d'un {@link IngestionRecord} — d'où vient le CV qui arrive dans la file.
  *
- * <p>L'enum est volontairement extensible : on déclare aujourd'hui {@code EMAIL}
- * (workflow n8n IMAP), mais les autres valeurs sont prévues pour les évolutions
- * futures (SES Inbound webhook, bot Slack, formulaire carrière publique…).
- * Le code applicatif ne route que sur {@code EMAIL} pour l'instant.
+ * <p>Toute candidature (manuelle ou automatisée) laisse une trace IngestionRecord
+ * → journal d'entrée unique et exhaustif.
+ *
+ * <p>L'enum est extensible : seules {@code MANUAL_UI} et {@code EMAIL} sont
+ * actives aujourd'hui, les autres valeurs sont préparées pour les évolutions
+ * futures (intégration API tierce, bot Slack, formulaire carrière public…).
  */
 public enum IngestionSource {
+
+    /** CV uploadé manuellement par un utilisateur via l'interface RH Flow. */
+    MANUAL_UI,
 
     /** CV arrivé par email — workflow n8n IMAP → POST /ingest/cv. */
     EMAIL,

@@ -31,11 +31,15 @@ spring:
     virtual:
       enabled: true
 
+  # Multipart : hard cap protégeant le thread/heap d'un flux indéfini.
+  # Le soft cap métier (10MB par défaut) est dans app.ingest.max-file-size ;
+  # tout fichier entre soft et hard cap est rejeté proprement (REJECTED côté
+  # ingest n8n, 400 côté UI). Au-delà du hard cap → 413 Payload Too Large.
   servlet:
     multipart:
       enabled: true
-      max-file-size: 10MB
-      max-request-size: 10MB
+      max-file-size:    ${MULTIPART_MAX_FILE_SIZE:50MB}
+      max-request-size: ${MULTIPART_MAX_REQUEST_SIZE:50MB}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AI fallback chain — providers are tried in declaration order.
@@ -202,13 +206,19 @@ app:
 
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Ingest endpoint (workflow n8n IMAP → POST /ingest/cv).
-  # Clé partagée présentée par n8n dans le header X-Ingest-Key. Pas de défaut :
-  # endpoint en fail-secure si la variable est absente ou vide.
-  # Générer une clé : openssl rand -hex 32
+  # Ingest endpoint (workflow n8n IMAP → POST /ingest/cv) ET uploads UI manuels.
+  #
+  # - api-key       : clé partagée X-Ingest-Key (n8n uniquement). Pas de défaut :
+  #                   endpoint en fail-secure si la variable est absente ou vide.
+  #                   Générer une clé : openssl rand -hex 32
+  #
+  # - max-file-size : soft cap métier. Fichiers > cette taille → 400 (UI) ou
+  #                   REJECTED FILE_TOO_LARGE (ingest n8n). DOIT être ≤ au
+  #                   hard cap multipart Spring (cf. spring.servlet.multipart).
   # ─────────────────────────────────────────────────────────────────────────────
   ingest:
-    api-key: ${INGEST_API_KEY:}
+    api-key:       ${INGEST_API_KEY:}
+    max-file-size: ${INGEST_MAX_FILE_SIZE:10MB}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # JWT : le secret DOIT être fourni via la variable d'environnement APP_JWT_SECRET.

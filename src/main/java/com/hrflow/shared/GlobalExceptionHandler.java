@@ -61,11 +61,20 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(403, "Forbidden", "Access denied"));
     }
 
+    /**
+     * Déclenchée quand un upload dépasse le hard cap multipart Spring
+     * ({@code spring.servlet.multipart.max-file-size}, 50MB par défaut). À ce
+     * stade le controller n'a même pas tourné — la requête est rejetée à la
+     * couche servlet. Pour le soft cap métier (10MB), c'est
+     * {@code IllegalArgumentException} qui est levée dans le service.
+     */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleFileTooLarge(MaxUploadSizeExceededException ex) {
+        log.warn("[Upload] hard cap multipart dépassé : {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(new ErrorResponse(413, "Payload Too Large", "File exceeds the maximum allowed size of 10 MB"));
+                .body(new ErrorResponse(413, "Payload Too Large",
+                        "Le fichier dépasse la taille maximale autorisée par le serveur."));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

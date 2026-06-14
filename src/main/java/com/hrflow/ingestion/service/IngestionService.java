@@ -147,11 +147,18 @@ public class IngestionService {
                             .formatted(record.getReferenceCode()));
         }
 
-        // (d) Fichier vide ou trop volumineux (format / pages)
+        // (d) Fichier vide → REJECTED INVALID_FILE_FORMAT
         if (file == null || file.isEmpty()) {
             return reject(record, IngestionRejectionReason.INVALID_FILE_FORMAT,
                     "Aucune pièce jointe valide n'a été reçue.");
         }
+        // (e) Soft cap métier (taille en octets)
+        try {
+            candidatureService.validateFileSize(file);
+        } catch (IllegalArgumentException e) {
+            return reject(record, IngestionRejectionReason.FILE_TOO_LARGE, e.getMessage());
+        }
+        // (f) Limite nombre de pages (PDF/DOCX trop touffus)
         try {
             candidatureService.validatePageCount(file);
         } catch (IllegalArgumentException e) {

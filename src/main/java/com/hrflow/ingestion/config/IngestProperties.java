@@ -1,24 +1,25 @@
 package com.hrflow.ingestion.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.unit.DataSize;
 
 /**
- * Configuration de l'endpoint d'ingestion technique (workflow n8n IMAP → backend).
+ * Configuration de la couche d'ingestion de CV (workflow n8n IMAP + uploads UI).
  *
- * <p>Bound sur le prefix {@code app.ingest}. Lu depuis {@code application.yaml}
- * qui pointe sur la variable d'env {@code INGEST_API_KEY} via {@code ${...}}.
+ * <p>Bound sur le prefix {@code app.ingest}. Lu depuis {@code application.yaml}.
  *
- * <p>Pourquoi un record :
- * <ul>
- *   <li>Immuable — pas de risque qu'un bean modifie la clé en cours de route.</li>
- *   <li>Spring Boot 3 le bind nativement comme {@code @ConfigurationProperties}.</li>
- * </ul>
- *
- * @param apiKey Clé partagée présentée par n8n dans le header {@code X-Ingest-Key}.
- *               Aucune valeur par défaut : si absente ou vide, le filtre refusera
- *               tous les appels (fail-secure).
+ * @param apiKey       Clé partagée présentée par n8n dans le header {@code X-Ingest-Key}.
+ *                     Aucune valeur par défaut : si absente ou vide, le filtre refuse
+ *                     tous les appels (fail-secure).
+ * @param maxFileSize  Soft cap : taille maximale acceptée pour un CV (PDF/DOCX).
+ *                     S'applique aux uploads UI (rejette en 400) ET aux ingests n8n
+ *                     (rejette en {@code REJECTED FILE_TOO_LARGE}, 200 OK avec verdict).
+ *                     Le hard cap (multipart Spring, voir
+ *                     {@code spring.servlet.multipart.max-file-size}) doit être ≥ cette valeur ;
+ *                     il existe pour protéger le serveur d'un flux indéfini.
  */
 @ConfigurationProperties(prefix = "app.ingest")
 public record IngestProperties(
-        String apiKey
+        String   apiKey,
+        DataSize maxFileSize
 ) {}

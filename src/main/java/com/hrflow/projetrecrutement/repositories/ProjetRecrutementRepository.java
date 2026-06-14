@@ -37,6 +37,18 @@ public interface ProjetRecrutementRepository
     /** Vérifie l'unicité de l'objet candidature en excluant le projet en cours de modification. */
     boolean existsByObjetCandidatureIgnoreCaseAndIdNot(String objetCandidature, Long id);
 
+    /**
+     * Lookup utilisé par l'ingestion n8n (IngestionService) : retrouve un projet
+     * par son objet de candidature (insensible à la casse), <strong>tous statuts
+     * confondus</strong>. Le service applique ensuite la règle métier « doit être
+     * OUVERT » pour distinguer 404 (introuvable) de 410 (fermé).
+     */
+    @EntityGraph(attributePaths = {
+        "ficheDePoste",
+        "ficheDePoste.direction"
+    })
+    Optional<ProjetRecrutement> findByObjetCandidatureIgnoreCase(String objetCandidature);
+
     @Query("""
         SELECT p FROM ProjetRecrutement p
         JOIN FETCH p.ficheDePoste f

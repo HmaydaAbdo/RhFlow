@@ -9,6 +9,11 @@ import com.hrflow.candidature.model.Candidature;
 import com.hrflow.candidature.model.StatutCandidature;
 import com.hrflow.candidature.repository.CandidatureRepository;
 import com.hrflow.candidature.specifications.CandidatureSpecification;
+import com.hrflow.ingestion.config.IngestProperties;
+import com.hrflow.ingestion.model.IngestionRecord;
+import com.hrflow.ingestion.model.IngestionSource;
+import com.hrflow.ingestion.model.IngestionStatus;
+import com.hrflow.ingestion.repositories.IngestionRecordRepository;
 import com.hrflow.projetrecrutement.exception.ProjetRecrutementNotFoundException;
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
 import com.hrflow.projetrecrutement.repositories.ProjetRecrutementRepository;
@@ -34,6 +39,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -55,6 +61,8 @@ public class CandidatureService {
     private final CandidatureMapper           mapper;
     private final CvPipelineService           pipeline;
     private final UserRepository              userRepository;
+    private final IngestionRecordRepository   ingestionRepo;
+    private final IngestProperties            ingestProperties;
     private final TransactionTemplate         txWrite;
 
     public CandidatureService(
@@ -64,14 +72,18 @@ public class CandidatureService {
             CandidatureMapper mapper,
             CvPipelineService pipeline,
             UserRepository userRepository,
+            IngestionRecordRepository ingestionRepo,
+            IngestProperties ingestProperties,
             PlatformTransactionManager txManager) {
-        this.candidatureRepo = candidatureRepo;
-        this.projetRepo      = projetRepo;
-        this.minioService    = minioService;
-        this.mapper          = mapper;
-        this.pipeline        = pipeline;
-        this.userRepository  = userRepository;
-        this.txWrite         = new TransactionTemplate(txManager);
+        this.candidatureRepo  = candidatureRepo;
+        this.projetRepo       = projetRepo;
+        this.minioService     = minioService;
+        this.mapper           = mapper;
+        this.pipeline         = pipeline;
+        this.userRepository   = userRepository;
+        this.ingestionRepo    = ingestionRepo;
+        this.ingestProperties = ingestProperties;
+        this.txWrite          = new TransactionTemplate(txManager);
     }
 
     // ── Upload manuel (UI) ──────────────────────────────────────────────────────
@@ -79,15 +91,24 @@ public class CandidatureService {
     /**
      * Upload d'un CV pour un projet de recrutement depuis l'UI (DRH/ADMIN/DIRECTEUR).
      *
-     * <p>Résout le projet par id et applique la garde d'ownership DIRECTEUR avant de
-     * déléguer la création à {@link #createCandidature(ProjetRecrutement, MultipartFile)}
-     * — qui contient la logique commune (persistance + MinIO + pipeline + rollback).
+     * <p>Étapes :
+     * <ol>
+     *   <li>Validation du fichier (pages, format) — early return 400 si invalide.</li>
+     *   <li>Résolution du projet + check d'ownership DIRECTEUR (TX courte).</li>
+     *   <li><b>Création d'un {@code IngestionRecord} PENDING</b> avec
+     *       {@code source=MANUAL_UI} — c'est la trace dans le journal d'entrée
+     *       unique, partagée avec les ingestions automatiques (n8n IMAP, etc.).</li>
+     *   <li>Délégation à {@link #createCandidature} (persistance + MinIO + pipeline).</li>
+     *   <li>Si succès → record passe à {@code IMPORTED} avec la FK candidature.
+     *       Si erreur → record passe à {@code ERROR}, l'exception remonte au client.</li>
+     * </ol>
      *
      * <p>Le flux MinIO + pipeline est documenté dans {@link #createCandidature}.
      */
     public CandidatureResponse upload(Long projetId, MultipartFile file) {
 
-        validatePageCount(file);
+        validateFileSize(file);     // soft cap configurable (app.ingest.max-file-size)
+        validatePageCount(file);    // limite métier sur le nombre de pages
 
         // TX courte : résolution du projet + check d'ownership DIRECTEUR.
         // On charge le projet dans une TX dédiée pour libérer la connexion avant MinIO.
@@ -98,8 +119,75 @@ public class CandidatureService {
             return p;
         });
 
-        Candidature saved = createCandidature(projet, file);
-        return mapper.toResponse(saved);
+        // Création du IngestionRecord PENDING — trace dans le journal d'entrée.
+        // externalId synthétique (UUID) car pas de Message-ID naturel pour l'upload manuel.
+        IngestionRecord record = createPendingRecord(file);
+
+        try {
+            Candidature saved = createCandidature(projet, file);
+            markRecordImported(record, saved);
+            return mapper.toResponse(saved);
+        } catch (RuntimeException e) {
+            markRecordError(record, e.getMessage());
+            throw e;   // l'utilisateur DOIT voir l'erreur côté UI
+        }
+    }
+
+    // ── Helpers IngestionRecord pour upload manuel ──────────────────────────────
+
+    /**
+     * Crée un {@link IngestionRecord} PENDING pour un upload manuel.
+     * {@code externalId} = "manual-{UUID}" — pas de risque de collision avec les
+     * Message-IDs des emails (qui contiennent un {@code @}).
+     * {@code rawMetadata} = JSON avec l'email de l'utilisateur connecté, pour audit.
+     */
+    private IngestionRecord createPendingRecord(MultipartFile file) {
+        String externalId = "manual-" + UUID.randomUUID();
+        String userEmail  = currentUserEmail();
+        String rawMeta    = "{\"uploadedBy\":\"%s\"}".formatted(userEmail != null ? userEmail : "");
+
+        return txWrite.execute(status -> {
+            IngestionRecord r = new IngestionRecord();
+            r.setSource(IngestionSource.MANUAL_UI);
+            r.setExternalId(externalId);
+            r.setNomFichier(file.getOriginalFilename());
+            r.setRawMetadata(rawMeta);
+            r.setStatus(IngestionStatus.PENDING);
+            return ingestionRepo.saveAndFlush(r);
+        });
+    }
+
+    /** Marque le record IMPORTED avec lien vers la candidature créée. */
+    private void markRecordImported(IngestionRecord record, Candidature candidature) {
+        txWrite.execute(status -> {
+            IngestionRecord r = ingestionRepo.findById(record.getId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "IngestionRecord disparu après création de candidature : id=" + record.getId()));
+            r.setCandidature(candidature);
+            r.setStatus(IngestionStatus.IMPORTED);
+            r.setProcessedAt(LocalDateTime.now());
+            return ingestionRepo.save(r);
+        });
+    }
+
+    /** Marque le record ERROR avec le détail de l'échec — l'exception originale remonte. */
+    private void markRecordError(IngestionRecord record, String detail) {
+        try {
+            txWrite.execute(status -> {
+                IngestionRecord r = ingestionRepo.findById(record.getId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "IngestionRecord disparu lors de markError : id=" + record.getId()));
+                r.setStatus(IngestionStatus.ERROR);
+                r.setRejectionDetail("Erreur upload manuel : " + (detail != null ? detail : "(inconnue)"));
+                r.setProcessedAt(LocalDateTime.now());
+                return ingestionRepo.save(r);
+            });
+        } catch (Exception ex) {
+            // Si on n'arrive même plus à écrire en base, on log mais on ne masque pas
+            // l'exception originale qui a déjà détruit le flow.
+            log.error("[Candidature] impossible de marquer IngestionRecord id={} en ERROR : {}",
+                    record.getId(), ex.getMessage());
+        }
     }
 
     // ── Création de candidature (commun upload manuel + ingest n8n) ─────────────
@@ -285,6 +373,34 @@ public class CandidatureService {
     private Candidature findWithProjet(Long id) {
         return candidatureRepo.findByIdWithProjet(id)
                 .orElseThrow(() -> new CandidatureNotFoundException(id));
+    }
+
+    // ── Validation taille fichier (soft cap métier) ─────────────────────────────
+
+    /**
+     * Vérifie que le fichier ne dépasse pas le soft cap configuré dans
+     * {@code app.ingest.max-file-size} (défaut 10MB).
+     *
+     * <p>Au-delà : {@link IllegalArgumentException}. Le caller décide comment
+     * traduire l'erreur :
+     * <ul>
+     *   <li>UI manuel ({@code upload()}) → laisse remonter → 400 via le handler</li>
+     *   <li>Ingest n8n ({@code IngestionService.ingest()}) → catch → record en
+     *       {@code REJECTED FILE_TOO_LARGE} + 200 OK</li>
+     * </ul>
+     *
+     * <p>Pour rappel, le hard cap Spring multipart (50MB par défaut) intercepte
+     * avant ce check : si le client envoie un flux > 50MB, il reçoit 413 sans
+     * même arriver dans le controller.
+     */
+    public void validateFileSize(MultipartFile file) {
+        if (file == null) return;
+        long maxBytes = ingestProperties.maxFileSize().toBytes();
+        if (file.getSize() > maxBytes) {
+            throw new IllegalArgumentException(
+                    "Fichier trop volumineux : %d octets reçus, maximum autorisé %d octets (%s)."
+                            .formatted(file.getSize(), maxBytes, ingestProperties.maxFileSize()));
+        }
     }
 
     // ── Validation pages ────────────────────────────────────────────────────────
