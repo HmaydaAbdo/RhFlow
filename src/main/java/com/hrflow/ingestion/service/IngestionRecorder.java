@@ -1,10 +1,14 @@
 package com.hrflow.ingestion.service;
 
 import com.hrflow.candidature.model.Candidature;
+import com.hrflow.ingestion.event.IngestionErroredEvent;
+import com.hrflow.ingestion.event.IngestionImportedEvent;
+import com.hrflow.ingestion.event.IngestionRejectedEvent;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionRejectionReason;
 import com.hrflow.ingestion.model.IngestionSource;
 import com.hrflow.ingestion.repositories.IngestionRecordRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -41,12 +45,15 @@ import java.util.Optional;
 public class IngestionRecorder {
 
     private final IngestionRecordRepository repo;
+    private final ApplicationEventPublisher publisher;
     private final TransactionTemplate       txWrite;
 
-    public IngestionRecorder(IngestionRecordRepository repo,
+    public IngestionRecorder(IngestionRecordRepository  repo,
+                             ApplicationEventPublisher  publisher,
                              PlatformTransactionManager txManager) {
-        this.repo    = repo;
-        this.txWrite = new TransactionTemplate(txManager);
+        this.repo      = repo;
+        this.publisher = publisher;
+        this.txWrite   = new TransactionTemplate(txManager);
     }
 
     // ── Lookup d'idempotence ─────────────────────────────────────────────────────
@@ -91,11 +98,16 @@ public class IngestionRecorder {
      * peut détenir une référence détachée).
      */
     public IngestionRecord markImported(Long recordId, Candidature candidature) {
-        return txWrite.execute(status -> {
+        IngestionRecord saved = txWrite.execute(status -> {
             IngestionRecord r = mustFind(recordId);
             r.markImported(candidature);  // domain method — valide PENDING + non-null
             return repo.save(r);
         });
+        // Event publié APRÈS commit : tout listener voit un état persisté cohérent.
+        publisher.publishEvent(new IngestionImportedEvent(
+                saved.getId(), saved.getSource(), saved.getExternalId(),
+                candidature.getId(), saved.getProcessedAt()));
+        return saved;
     }
 
     /**
@@ -104,22 +116,30 @@ public class IngestionRecorder {
     public IngestionRecord markRejected(Long                     recordId,
                                         IngestionRejectionReason reason,
                                         String                   detail) {
-        return txWrite.execute(status -> {
+        IngestionRecord saved = txWrite.execute(status -> {
             IngestionRecord r = mustFind(recordId);
             r.reject(reason, detail);  // domain method — valide PENDING + non-null reason
             return repo.save(r);
         });
+        publisher.publishEvent(new IngestionRejectedEvent(
+                saved.getId(), saved.getSource(), saved.getExternalId(),
+                reason, detail, saved.getProcessedAt()));
+        return saved;
     }
 
     /**
      * Marque le record ERROR avec le détail technique du problème (retry possible).
      */
     public IngestionRecord markError(Long recordId, String detail) {
-        return txWrite.execute(status -> {
+        IngestionRecord saved = txWrite.execute(status -> {
             IngestionRecord r = mustFind(recordId);
             r.markError(detail);  // domain method — valide PENDING
             return repo.save(r);
         });
+        publisher.publishEvent(new IngestionErroredEvent(
+                saved.getId(), saved.getSource(), saved.getExternalId(),
+                detail, saved.getProcessedAt()));
+        return saved;
     }
 
     // ── Helper ───────────────────────────────────────────────────────────────────
