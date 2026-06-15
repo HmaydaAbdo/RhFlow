@@ -3,6 +3,7 @@ package com.hrflow.ingestion.service;
 import com.hrflow.candidature.model.Candidature;
 import com.hrflow.candidature.service.CandidatureService;
 import com.hrflow.ingestion.dto.IngestionRecordResponse;
+import com.hrflow.ingestion.logging.IngestMdc;
 import com.hrflow.ingestion.mapper.IngestionRecordMapper;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionRejectionReason;
@@ -101,6 +102,8 @@ public class IngestionService {
                     file != null ? file.getOriginalFilename() : null,
                     rawMetadata
             );
+            // À partir d'ici, tous les logs du flux portent aussi le recordId.
+            IngestMdc.putRecordId(record.getId());
         } catch (DataIntegrityViolationException e) {
             // Race condition : un autre thread (autre worker n8n) a inséré entre nos 2 phases.
             // On re-fetch et on retourne son état — c'est exactement le comportement attendu.

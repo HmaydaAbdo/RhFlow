@@ -10,6 +10,7 @@ import com.hrflow.candidature.model.StatutCandidature;
 import com.hrflow.candidature.repository.CandidatureRepository;
 import com.hrflow.candidature.specifications.CandidatureSpecification;
 import com.hrflow.ingestion.config.IngestProperties;
+import com.hrflow.ingestion.logging.IngestMdc;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionSource;
 import com.hrflow.ingestion.service.IngestionRecorder;
@@ -121,13 +122,22 @@ public class CandidatureService {
         // externalId synthétique (UUID) car pas de Message-ID naturel pour l'upload manuel.
         IngestionRecord record = createPendingRecord(file);
 
+        // MDC pour la traçabilité : à partir d'ici tous les logs du flux portent
+        // source + externalId + recordId. Cleanup garanti par try-finally.
         try {
-            Candidature saved = createCandidature(projet, file);
-            markRecordImported(record, saved);
-            return mapper.toResponse(saved);
-        } catch (RuntimeException e) {
-            markRecordError(record, e.getMessage());
-            throw e;   // l'utilisateur DOIT voir l'erreur côté UI
+            IngestMdc.put(IngestionSource.MANUAL_UI.name(),
+                          record.getExternalId(),
+                          String.valueOf(record.getId()));
+            try {
+                Candidature saved = createCandidature(projet, file);
+                markRecordImported(record, saved);
+                return mapper.toResponse(saved);
+            } catch (RuntimeException e) {
+                markRecordError(record, e.getMessage());
+                throw e;   // l'utilisateur DOIT voir l'erreur côté UI
+            }
+        } finally {
+            IngestMdc.clear();
         }
     }
 

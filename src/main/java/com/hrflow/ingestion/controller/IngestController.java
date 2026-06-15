@@ -1,6 +1,7 @@
 package com.hrflow.ingestion.controller;
 
 import com.hrflow.ingestion.dto.IngestionRecordResponse;
+import com.hrflow.ingestion.logging.IngestMdc;
 import com.hrflow.ingestion.model.IngestionSource;
 import com.hrflow.ingestion.service.IngestionService;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -74,6 +75,14 @@ public class IngestController {
             throw new IllegalArgumentException("Le paramètre 'externalId' est obligatoire.");
         }
 
-        return ingestionService.ingest(file, source, externalId, referenceCode, rawMetadata);
+        // MDC pour la traçabilité : tous les logs du flux (controller + service +
+        // recorder) porteront source et externalId. Le recordId sera ajouté en cours
+        // de route par IngestionService.ingest() après createPending.
+        try {
+            IngestMdc.put(source.name(), externalId, null);
+            return ingestionService.ingest(file, source, externalId, referenceCode, rawMetadata);
+        } finally {
+            IngestMdc.clear();
+        }
     }
 }
