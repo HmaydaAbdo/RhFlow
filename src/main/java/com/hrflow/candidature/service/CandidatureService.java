@@ -12,7 +12,7 @@ import com.hrflow.candidature.specifications.CandidatureSpecification;
 import com.hrflow.ingestion.config.IngestProperties;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionSource;
-import com.hrflow.ingestion.repositories.IngestionRecordRepository;
+import com.hrflow.ingestion.service.IngestionRecorder;
 import com.hrflow.projetrecrutement.exception.ProjetRecrutementNotFoundException;
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
 import com.hrflow.projetrecrutement.repositories.ProjetRecrutementRepository;
@@ -59,7 +59,7 @@ public class CandidatureService {
     private final CandidatureMapper           mapper;
     private final CvPipelineService           pipeline;
     private final UserRepository              userRepository;
-    private final IngestionRecordRepository   ingestionRepo;
+    private final IngestionRecorder           ingestionRecorder;
     private final IngestProperties            ingestProperties;
     private final TransactionTemplate         txWrite;
 
@@ -70,18 +70,18 @@ public class CandidatureService {
             CandidatureMapper mapper,
             CvPipelineService pipeline,
             UserRepository userRepository,
-            IngestionRecordRepository ingestionRepo,
+            IngestionRecorder ingestionRecorder,
             IngestProperties ingestProperties,
             PlatformTransactionManager txManager) {
-        this.candidatureRepo  = candidatureRepo;
-        this.projetRepo       = projetRepo;
-        this.minioService     = minioService;
-        this.mapper           = mapper;
-        this.pipeline         = pipeline;
-        this.userRepository   = userRepository;
-        this.ingestionRepo    = ingestionRepo;
-        this.ingestProperties = ingestProperties;
-        this.txWrite          = new TransactionTemplate(txManager);
+        this.candidatureRepo   = candidatureRepo;
+        this.projetRepo        = projetRepo;
+        this.minioService      = minioService;
+        this.mapper            = mapper;
+        this.pipeline          = pipeline;
+        this.userRepository    = userRepository;
+        this.ingestionRecorder = ingestionRecorder;
+        this.ingestProperties  = ingestProperties;
+        this.txWrite           = new TransactionTemplate(txManager);
     }
 
     // ── Upload manuel (UI) ──────────────────────────────────────────────────────
@@ -144,42 +144,32 @@ public class CandidatureService {
         String userEmail  = currentUserEmail();
         String rawMeta    = "{\"uploadedBy\":\"%s\"}".formatted(userEmail != null ? userEmail : "");
 
-        return txWrite.execute(status -> {
-            IngestionRecord r = IngestionRecord.createPending(
-                    IngestionSource.MANUAL_UI,
-                    externalId,
-                    null,                         // pas de code de référence pour un upload manuel
-                    file.getOriginalFilename(),
-                    rawMeta
-            );
-            return ingestionRepo.saveAndFlush(r);
-        });
+        return ingestionRecorder.createPending(
+                IngestionSource.MANUAL_UI,
+                externalId,
+                null,                                // pas de code de référence pour un upload manuel
+                file.getOriginalFilename(),
+                rawMeta
+        );
     }
 
     /** Marque le record IMPORTED avec lien vers la candidature créée. */
     private void markRecordImported(IngestionRecord record, Candidature candidature) {
-        txWrite.execute(status -> {
-            IngestionRecord r = ingestionRepo.findById(record.getId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "IngestionRecord disparu après création de candidature : id=" + record.getId()));
-            r.markImported(candidature);
-            return ingestionRepo.save(r);
-        });
+        ingestionRecorder.markImported(record.getId(), candidature);
     }
 
-    /** Marque le record ERROR avec le détail de l'échec — l'exception originale remonte. */
+    /**
+     * Marque le record ERROR avec le détail de l'échec.
+     *
+     * <p>Best-effort : si on n'arrive même plus à écrire en base, on log mais
+     * on ne masque pas l'exception originale qui a déjà détruit le flow.
+     */
     private void markRecordError(IngestionRecord record, String detail) {
         try {
-            txWrite.execute(status -> {
-                IngestionRecord r = ingestionRepo.findById(record.getId())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "IngestionRecord disparu lors de markError : id=" + record.getId()));
-                r.markError("Erreur upload manuel : " + (detail != null ? detail : "(inconnue)"));
-                return ingestionRepo.save(r);
-            });
+            ingestionRecorder.markError(
+                    record.getId(),
+                    "Erreur upload manuel : " + (detail != null ? detail : "(inconnue)"));
         } catch (Exception ex) {
-            // Si on n'arrive même plus à écrire en base, on log mais on ne masque pas
-            // l'exception originale qui a déjà détruit le flow.
             log.error("[Candidature] impossible de marquer IngestionRecord id={} en ERROR : {}",
                     record.getId(), ex.getMessage());
         }

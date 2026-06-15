@@ -7,7 +7,6 @@ import com.hrflow.ingestion.mapper.IngestionRecordMapper;
 import com.hrflow.ingestion.model.IngestionRecord;
 import com.hrflow.ingestion.model.IngestionRejectionReason;
 import com.hrflow.ingestion.model.IngestionSource;
-import com.hrflow.ingestion.repositories.IngestionRecordRepository;
 import com.hrflow.projetrecrutement.model.ProjetRecrutement;
 import com.hrflow.projetrecrutement.model.StatutProjet;
 import com.hrflow.projetrecrutement.repositories.ProjetRecrutementRepository;
@@ -15,8 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Optional;
@@ -40,31 +37,28 @@ import java.util.Optional;
  * </ul>
  *
  * <p>Pattern transactionnel : multi-TX courtes (cf. discussion architecture).
- * Aucun {@code @Transactional} au niveau classe — chaque écriture DB passe par
- * {@code txWrite.execute(...)} pour garder le commit immédiat et éviter de tenir
- * une connexion pendant les appels externes (MinIO, pipeline IA).
+ * Le cycle de vie du {@link IngestionRecord} (création, transitions) est
+ * entièrement délégué à {@link IngestionRecorder}, qui gère sa propre TX
+ * courte par appel — pas de {@code @Transactional} ici.
  */
 @Service
 public class IngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
 
-    private final IngestionRecordRepository    repo;
+    private final IngestionRecorder            recorder;
     private final ProjetRecrutementRepository  projetRepo;
     private final CandidatureService           candidatureService;
     private final IngestionRecordMapper        mapper;
-    private final TransactionTemplate          txWrite;
 
-    public IngestionService(IngestionRecordRepository    repo,
+    public IngestionService(IngestionRecorder            recorder,
                             ProjetRecrutementRepository  projetRepo,
                             CandidatureService           candidatureService,
-                            IngestionRecordMapper        mapper,
-                            PlatformTransactionManager   txManager) {
-        this.repo               = repo;
+                            IngestionRecordMapper        mapper) {
+        this.recorder           = recorder;
         this.projetRepo         = projetRepo;
         this.candidatureService = candidatureService;
         this.mapper             = mapper;
-        this.txWrite            = new TransactionTemplate(txManager);
     }
 
     // ── API publique ─────────────────────────────────────────────────────────────
@@ -90,7 +84,7 @@ public class IngestionService {
                 file != null ? file.getOriginalFilename() : null);
 
         // ── Phase 1 : Idempotence — déjà vu ? ──────────────────────────────────
-        Optional<IngestionRecord> existing = repo.findByExternalIdAndSource(externalId, source);
+        Optional<IngestionRecord> existing = recorder.findIdempotent(externalId, source);
         if (existing.isPresent()) {
             log.info("[Ingestion] externalId={} déjà traité (status={}) — skip",
                     externalId, existing.get().getStatus());
@@ -100,22 +94,19 @@ public class IngestionService {
         // ── Phase 2 : Créer le record PENDING (commit immédiat) ───────────────
         IngestionRecord record;
         try {
-            record = txWrite.execute(status -> {
-                IngestionRecord r = IngestionRecord.createPending(
-                        source,
-                        externalId,
-                        blankToNull(referenceCode),
-                        file != null ? file.getOriginalFilename() : null,
-                        rawMetadata
-                );
-                return repo.saveAndFlush(r);
-            });
+            record = recorder.createPending(
+                    source,
+                    externalId,
+                    blankToNull(referenceCode),
+                    file != null ? file.getOriginalFilename() : null,
+                    rawMetadata
+            );
         } catch (DataIntegrityViolationException e) {
             // Race condition : un autre thread (autre worker n8n) a inséré entre nos 2 phases.
             // On re-fetch et on retourne son état — c'est exactement le comportement attendu.
             log.warn("[Ingestion] race condition sur externalId={} — fetch existant", externalId);
             return mapper.toResponse(
-                    repo.findByExternalIdAndSource(externalId, source)
+                    recorder.findIdempotent(externalId, source)
                             .orElseThrow(() -> new IllegalStateException(
                                     "Race condition non résolue pour externalId=" + externalId))
             );
@@ -182,58 +173,33 @@ public class IngestionService {
         }
 
         // ── Phase 5 : Finaliser — IMPORTED + lien candidature ──────────────────
-        final Candidature createdCandidature = candidature;  // effectively final pour le lambda
-        IngestionRecord saved = txWrite.execute(status -> {
-            // Re-fetch dans la TX pour éviter les LazyInit + state stale.
-            IngestionRecord r = repo.findById(record.getId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "IngestionRecord disparu en phase 5 : id=" + record.getId()));
-            // Méthode domaine : valide PENDING → IMPORTED + lie la candidature
-            // + pose processedAt. Aucun setter manuel.
-            r.markImported(createdCandidature);
-            return repo.save(r);
-        });
+        IngestionRecord saved = recorder.markImported(record.getId(), candidature);
 
         log.info("[Ingestion] IMPORTED record={} → candidature={}",
                 saved.getId(), candidature.getId());
         return mapper.toResponse(saved);
     }
 
-    // ── Helpers privés — transitions d'état ──────────────────────────────────────
+    // ── Helpers privés — wrappers de log + traduction en DTO ────────────────────
 
     /**
-     * Marque le record REJECTED avec une raison métier, persiste, et retourne le DTO.
-     * Le rejet n'est PAS une exception — c'est un état métier valide qui produit un 200.
+     * Marque le record REJECTED avec une raison métier via le recorder, log,
+     * et retourne le DTO. Le rejet n'est PAS une exception — c'est un état
+     * métier valide qui produit un 200 OK avec le verdict dans le body.
      */
     private IngestionRecordResponse reject(IngestionRecord            record,
                                            IngestionRejectionReason   reason,
                                            String                     detail) {
         log.info("[Ingestion] REJECTED record={} → reason={} ({})",
                 record.getId(), reason, detail);
-
-        IngestionRecord saved = txWrite.execute(status -> {
-            IngestionRecord r = repo.findById(record.getId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "IngestionRecord disparu lors du rejet : id=" + record.getId()));
-            r.reject(reason, detail);
-            return repo.save(r);
-        });
-        return mapper.toResponse(saved);
+        return mapper.toResponse(recorder.markRejected(record.getId(), reason, detail));
     }
 
     /**
      * Marque le record ERROR pour les échecs techniques retry-ables.
-     * Le détail va dans {@code rejectionDetail} (même colonne, différente sémantique).
      */
     private IngestionRecordResponse markError(IngestionRecord record, String detail) {
-        IngestionRecord saved = txWrite.execute(status -> {
-            IngestionRecord r = repo.findById(record.getId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "IngestionRecord disparu lors du markError : id=" + record.getId()));
-            r.markError(detail);
-            return repo.save(r);
-        });
-        return mapper.toResponse(saved);
+        return mapper.toResponse(recorder.markError(record.getId(), detail));
     }
 
     // ── Utility ──────────────────────────────────────────────────────────────────
