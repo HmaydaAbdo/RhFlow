@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Fichiers exclus du contexte de build Docker.
+# Sans ce fichier, `docker build` envoie TOUT le dossier au daemon — lent +
+# risque de fuite de secrets (.env, data/, IDE configs).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Build artifacts
+target/
+*.jar
+*.war
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Volumes runtime (postgres, minio, n8n…)
+data/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docs / misc
+HELP.md
+README.md
+*.md

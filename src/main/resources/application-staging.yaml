@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Profil STAGING — backend conteneurisé dans docker-compose.
+#
+# Les URLs des services externes (DB, MinIO, Docling) sont surchargées par
+# variables d'environnement explicites dans docker-compose.yml (service
+# `backend`) :
+#
+#   DB_URL                 = jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+#   DOCLING_URL            = http://docling-serve:5001
+#   MINIO_ENDPOINT         = http://minio:9000
+#   MINIO_SDK_HOST_OVERRIDE= (vide — pas de DNS trick nécessaire dans le réseau Docker)
+#
+# Pour MINIO_PUBLIC_ENDPOINT (URLs signées pour le navigateur), on garde
+# http://localhost:9000 — le browser reste sur l'hôte, pas dans Docker.
+#
+# Côté Spring DevTools : désactivé en staging (pas de hot-reload, image build).
+# ─────────────────────────────────────────────────────────────────────────────
+
+spring:
+  devtools:
+    restart:
+      enabled: false
+    livereload:
+      enabled: false
+
+# Logs moins verbeux en staging — on remonte l'IO du fichier au lieu de la console
+logging:
+  level:
+    com.hrflow: INFO
+    org.hibernate.SQL: WARN

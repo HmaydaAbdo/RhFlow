@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Profil DEV — backend lancé depuis IntelliJ sur l'hôte.
+#
+# Toutes les URLs (DB, MinIO, Docling…) viennent du fichier .env (chargé par
+# spring-dotenv) — pas besoin de les répéter ici. La présence de ce fichier
+# active simplement le profile pour Spring.
+#
+# Convention pratique :
+#   - .env contient les valeurs « localhost »/« host.docker.internal » pour le dev
+#   - docker-compose surcharge celles-ci pour le profile staging (variables d'env
+#     explicites dans le service `backend`)
+#
+# Spring devtools (restart auto) reste actif en dev — désactivé en staging.
+# ─────────────────────────────────────────────────────────────────────────────
+
+spring:
+  devtools:
+    restart:
+      enabled: true

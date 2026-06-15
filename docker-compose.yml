@@ -179,3 +179,43 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  # ========== BACKEND SPRING BOOT (profil STAGING) ==========
+  # Image Docker du backend, construite depuis le Dockerfile à la racine.
+  #
+  # Démarrage à la demande (profil compose "staging") :
+  #   docker compose --profile staging up backend
+  #   docker compose --profile staging build backend  # pour rebuilder après changes
+  #
+  # Pour le dev courant : laisser ce service ARRÊTÉ, lancer depuis IntelliJ
+  # (Spring profile dev par défaut, URLs localhost / host.docker.internal).
+  #
+  # Les URLs des services externes sont surchargées explicitement ici :
+  # SPRING_PROFILES_ACTIVE=staging désactive devtools et active les overrides
+  # de application-staging.yaml, et ces ENV gagnent sur le .env file.
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rh-erp-backend:dev
+    container_name: rh-erp-backend
+    restart: unless-stopped
+    profiles: ["staging"]
+    env_file: ./.env
+    environment:
+      SPRING_PROFILES_ACTIVE: staging
+      # URLs services dans le réseau Docker (override des localhost de .env)
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-rh_erp_db}
+      DOCLING_URL: http://docling-serve:5001
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_SDK_HOST_OVERRIDE: ""
+      # PUBLIC_ENDPOINT reste localhost — le navigateur est sur l'hôte
+      MINIO_PUBLIC_ENDPOINT: http://localhost:9000
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:      { condition: service_healthy }
+      minio:         { condition: service_healthy }
+      docling-serve: { condition: service_started }
+    networks:
+      - rh-network
+

@@ -8,6 +8,18 @@ spring:
     name: RH ERP System
 
   # ─────────────────────────────────────────────────────────────────────────
+  # Active profile selection :
+  #   - dev     : backend lancé depuis IntelliJ sur l'hôte → URLs localhost /
+  #               host.docker.internal (cf. application-dev.yaml)
+  #   - staging : backend conteneurisé dans docker-compose → URLs en
+  #               service-name (cf. application-staging.yaml)
+  # IntelliJ lance sans variable → "dev" par défaut.
+  # docker-compose passe SPRING_PROFILES_ACTIVE=staging au container.
+  # ─────────────────────────────────────────────────────────────────────────
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # ─────────────────────────────────────────────────────────────────────────
   # Datasource : credentials externalisés. Les valeurs par défaut conviennent
   # au développement local (docker-compose). En prod, injecter via variables
   # d'environnement (cf. .env.example).

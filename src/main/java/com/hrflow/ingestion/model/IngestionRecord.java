@@ -4,6 +4,8 @@ import com.hrflow.candidature.model.Candidature;
 import jakarta.persistence.*;
 import org.hibernate.annotations.Check;
 import org.hibernate.annotations.Checks;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.LocalDateTime;
 
@@ -43,10 +45,16 @@ import java.time.LocalDateTime;
  *
  * <p>Filet de sécurité indépendant du code Java :
  * <ol>
- *   <li>{@code status=IMPORTED ⇒ candidature_id IS NOT NULL}</li>
  *   <li>{@code status=REJECTED ⇒ rejection_reason IS NOT NULL}</li>
  *   <li>{@code status ≠ PENDING ⇒ processed_at IS NOT NULL}</li>
  * </ol>
+ *
+ * <p>Note : on N'a PAS de contrainte « IMPORTED ⇒ candidature_id NOT NULL »
+ * parce qu'on autorise {@code ON DELETE SET NULL} sur la FK candidature : si
+ * une candidature est supprimée, le record reste IMPORTED comme trace mais
+ * son {@code candidature_id} repasse à NULL. La cohérence métier (« on ne
+ * peut pas marquer IMPORTED sans candidature ») est garantie par le domain
+ * method {@link #markImported(Candidature)} qui valide non-null à la transition.</p>
  *
  * <p>⚠ Avec {@code ddl-auto: update}, les nouvelles contraintes
  * {@code @Check} ne sont PAS appliquées automatiquement sur une table
@@ -71,10 +79,10 @@ import java.time.LocalDateTime;
     }
 )
 // Contraintes DB d'invariant — filet en cas de bug applicatif.
-// @Checks (conteneur) pour compatibilité Hibernate 6.x toutes versions.
+// (« IMPORTED ⇒ candidature NOT NULL » est volontairement absent : la FK est
+//  ON DELETE SET NULL pour permettre la suppression d'une candidature en
+//  préservant le record comme trace historique.)
 @Checks({
-    @Check(name = "chk_imported_has_candidature",
-           constraints = "status <> 'IMPORTED' OR candidature_id IS NOT NULL"),
     @Check(name = "chk_rejected_has_reason",
            constraints = "status <> 'REJECTED' OR rejection_reason IS NOT NULL"),
     @Check(name = "chk_terminal_has_processed_at",
@@ -121,6 +129,7 @@ public class IngestionRecord {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "candidature_id")
+    @OnDelete(action = OnDeleteAction.SET_NULL)
     private Candidature candidature;
 
     // ── Timestamps ───────────────────────────────────────────────────────────────
