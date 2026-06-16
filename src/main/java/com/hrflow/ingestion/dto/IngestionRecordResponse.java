@@ -31,7 +31,12 @@ import java.time.LocalDateTime;
  * @param status          État courant du traitement.
  * @param rejectionReason Renseignée uniquement si {@code status == REJECTED}.
  * @param rejectionDetail Texte libre complétant la raison (ex. code attendu vs reçu).
- * @param candidatureId   Renseigné uniquement si {@code status == IMPORTED}.
+ * @param candidatureId        Renseigné uniquement si {@code status == IMPORTED}.
+ * @param projetRecrutementId  Id du projet de recrutement lié — permet à l'UI
+ *                             DRH de naviguer depuis la « Boîte de réception »
+ *                             vers la page de la candidature
+ *                             ({@code /projets-recrutement/:projetId/candidatures/:id}).
+ *                             Null si pas de candidature liée (rejet/erreur).
  * @param receivedAt      Quand le record a été créé en base.
  * @param processedAt     Quand le statut final a été posé (null si encore PENDING).
  */
@@ -46,6 +51,7 @@ public record IngestionRecordResponse(
         IngestionRejectionReason  rejectionReason,
         String                    rejectionDetail,
         Long                      candidatureId,
+        Long                      projetRecrutementId,
         LocalDateTime             receivedAt,
         LocalDateTime             processedAt
 ) {}

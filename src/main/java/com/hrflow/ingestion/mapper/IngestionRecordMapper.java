@@ -23,6 +23,7 @@ import org.mapstruct.Mapping;
 @Mapper(componentModel = "spring")
 public interface IngestionRecordMapper {
 
-    @Mapping(target = "candidatureId", source = "candidature.id")
+    @Mapping(target = "candidatureId",       source = "candidature.id")
+    @Mapping(target = "projetRecrutementId", source = "candidature.projetRecrutement.id")
     IngestionRecordResponse toResponse(IngestionRecord record);
 }
