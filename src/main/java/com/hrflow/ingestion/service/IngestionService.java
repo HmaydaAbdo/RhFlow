@@ -119,12 +119,15 @@ public class IngestionService {
         // (a) Pas de code de référence dans le sujet
         if (record.getReferenceCode() == null) {
             return reject(record, IngestionRejectionReason.NO_REFERENCE_CODE,
-                    "Le sujet de l'email ne contient pas de code projet (format attendu : [BES-XXX]).");
+                    "Le sujet de l'email ne contient pas de référence projet (format attendu : « Réf. 0001 »).");
         }
 
         // (b) Code de référence inconnu côté base
+        // Matching par fragment (LIKE) : le referenceCode est typiquement
+        // "Réf. NNNN" — partie unique et stable de l'objet de candidature
+        // généré par ProjetRecrutementService.generateObjetCandidature().
         Optional<ProjetRecrutement> projetOpt =
-                projetRepo.findByObjetCandidatureIgnoreCase(record.getReferenceCode());
+                projetRepo.findByObjetCandidatureContainingIgnoreCase(record.getReferenceCode());
         if (projetOpt.isEmpty()) {
             return reject(record, IngestionRejectionReason.UNKNOWN_REFERENCE,
                     "Aucun projet de recrutement ne correspond au code « %s »."

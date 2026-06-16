@@ -39,15 +39,26 @@ public interface ProjetRecrutementRepository
 
     /**
      * Lookup utilisé par l'ingestion n8n (IngestionService) : retrouve un projet
-     * par son objet de candidature (insensible à la casse), <strong>tous statuts
-     * confondus</strong>. Le service applique ensuite la règle métier « doit être
-     * OUVERT » pour distinguer 404 (introuvable) de 410 (fermé).
+     * dont l'objet de candidature <strong>contient</strong> le fragment fourni
+     * (insensible à la casse), <strong>tous statuts confondus</strong>.
+     *
+     * <p>Le format canonique des objets de candidature est généré par
+     * {@code ProjetRecrutementService.generateObjetCandidature()} :
+     * <pre>"Candidature – {intitule} – Réf. {id:0000}"</pre>
+     * (ex : {@code "Candidature – Développeur Java Senior – Réf. 0001"}).
+     *
+     * <p>n8n n'extrait du sujet d'email que le fragment unique {@code "Réf. NNNN"}.
+     * Comme {@code NNNN} est dérivé de l'ID du projet (unique par construction),
+     * le {@code Containing} retourne 0 ou 1 résultat — jamais d'ambiguïté.
+     *
+     * <p>Le service applique ensuite la règle métier « doit être OUVERT » pour
+     * distinguer 404 (introuvable) de 410 (fermé).
      */
     @EntityGraph(attributePaths = {
         "ficheDePoste",
         "ficheDePoste.direction"
     })
-    Optional<ProjetRecrutement> findByObjetCandidatureIgnoreCase(String objetCandidature);
+    Optional<ProjetRecrutement> findByObjetCandidatureContainingIgnoreCase(String fragment);
 
     @Query("""
         SELECT p FROM ProjetRecrutement p

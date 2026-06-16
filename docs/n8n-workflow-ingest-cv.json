@@ -1,0 +1,126 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "format": "resolved",
+        "options": {
+          "trackLastMessageId": true
+        }
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2.1,
+      "position": [
+        -944,
+        16
+      ],
+      "id": "43b45315-7847-4f37-a235-0f0e26edc230",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "y18wQgOwMp9viHMg",
+          "name": "RH-Flow IMAP (Staport)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data   = $input.item.json;\nconst binary = $input.item.binary || {};\n\n// ── 1) externalId : Message-ID sans chevrons ────────────────────────────────\nconst externalId = (data.messageId || '').replace(/^<|>$/g, '');\n\n// ── 2) referenceCode : extraction du \"Réf. NNNN\" ────────────────────────────\n// Le backend génère \"Candidature – {intitule} – Réf. {id:0004}\".\n// On extrait uniquement le fragment unique.\nconst refMatch      = (data.subject || '').match(/R[ée]f\\.\\s*(\\d{4,})/i);\nconst referenceCode = refMatch ? `Réf. ${refMatch[1]}` : null;\n\n// Sujet nettoyé (pour audit/affichage, pas pour matching)\nconst cleanSubject = (data.subject || '')\n  .replace(/^\\s*(Re|Fwd?|Tr|TR|FWD|RE)\\s*:\\s*/gi, '')\n  .trim();\n\n// ── 3) Première PJ PDF/DOCX ─────────────────────────────────────────────────\nconst ALLOWED = ['pdf', 'docx'];\nlet attachmentKey = null;\nfor (const [key, file] of Object.entries(binary)) {\n  const ext = (file.fileExtension || '').toLowerCase();\n  if (ALLOWED.includes(ext)) { attachmentKey = key; break; }\n}\n\n// ── 4) Métadonnées audit ────────────────────────────────────────────────────\nconst fromAddress = data.from?.value?.[0]?.address || '';\nconst fromName    = data.from?.value?.[0]?.name    || '';\nconst rawMetadata = JSON.stringify({\n  from:       fromAddress,\n  fromName,\n  subject:    data.subject || '',\n  receivedAt: data.date    || null,\n});\n\n// ── 5) Output ───────────────────────────────────────────────────────────────\nreturn {\n  json: {\n    externalId,\n    referenceCode,                          // ex: \"Réf. 0001\" ou null\n    subjectClean: cleanSubject,\n    senderEmail: fromAddress,\n    attachmentKey,\n    rawMetadata,\n    hasValidAttachment: attachmentKey !== null,\n  },\n  binary,\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -736,
+        16
+      ],
+      "id": "d944e9d5-4d28-4fcb-ae90-d63b48854d4e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/rh/ingest/cv",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "={{ $json.attachmentKey }}"
+            },
+            {
+              "name": "externalId",
+              "value": "={{ $json.externalId }}"
+            },
+            {
+              "name": "source",
+              "value": "EMAIL"
+            },
+            {
+              "name": "referenceCode",
+              "value": "={{ $json.referenceCode || '' }}"
+            },
+            {
+              "name": "rawMetadata",
+              "value": "={{ $json.rawMetadata || '' }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -528,
+        16
+      ],
+      "id": "97a2388f-d116-42be-ad45-d6f7430cb3de",
+      "name": "POST Backend Ingest",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "KZLGS7hd7qHNXrkv",
+          "name": "RH-Flow Ingest Key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "POST Backend Ingest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8d8272a32e9a806af3e5e62eefb7684df818a4b58d54fec003b401d59f97f96b"
+  }
+}
