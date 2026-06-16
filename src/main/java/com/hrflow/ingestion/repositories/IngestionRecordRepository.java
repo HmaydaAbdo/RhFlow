@@ -5,14 +5,18 @@ import com.hrflow.ingestion.model.IngestionSource;
 import com.hrflow.ingestion.model.IngestionStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
 @Repository
-public interface IngestionRecordRepository extends JpaRepository<IngestionRecord, Long> {
+public interface IngestionRecordRepository
+        extends JpaRepository<IngestionRecord, Long>,
+                JpaSpecificationExecutor<IngestionRecord> {
 
     /**
      * Lookup d'idempotence : retrouve un record par sa clé naturelle externe.
@@ -34,6 +38,14 @@ public interface IngestionRecordRepository extends JpaRepository<IngestionRecord
     @EntityGraph(attributePaths = {"candidature", "candidature.projetRecrutement"})
     @Override
     Page<IngestionRecord> findAll(Pageable pageable);
+
+    /**
+     * Recherche multi-critères utilisée par la « Boîte de réception » DRH.
+     * Combine plusieurs filtres optionnels (status, source) via Specifications.
+     */
+    @EntityGraph(attributePaths = {"candidature", "candidature.projetRecrutement"})
+    @Override
+    Page<IngestionRecord> findAll(Specification<IngestionRecord> spec, Pageable pageable);
 
     /**
      * Détail enrichi pour la page de re-routage (rattacher à un projet).
